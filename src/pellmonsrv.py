@@ -17,7 +17,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import signal, os, Queue, threading, glib
+import signal, os, queue, threading
+from gi.repository import GLib
 import dbus, dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 import gobject
@@ -81,12 +82,12 @@ class MyDBUSService(dbus.service.Object):
         for item in params:
             data={}
             data['name']=item
-            if hasattr(allparameters[item], 'max'): 
+            if hasattr(allparameters[item], 'max'):
                 data['max']=(allparameters[item].max)
-            if hasattr(allparameters[item], 'min'): 
+            if hasattr(allparameters[item], 'min'):
                 data['min']=(allparameters[item].min)
-            if hasattr(allparameters[item], 'frame'): 
-                if hasattr(allparameters[item], 'address'): 
+            if hasattr(allparameters[item], 'frame'):
+                if hasattr(allparameters[item], 'address'):
                     data['type']=('R/W')
                 else:
                     data['type']=('R')
@@ -100,19 +101,19 @@ class MyDBUSService(dbus.service.Object):
             return ['unsupported_version']
         else:
             return l
-                
+
     @dbus.service.method('org.pellmon.int')
     def GetDBwithTags(self, tags):
         """Get the menutags for param"""
         allparameters = protocol.getDataBase()
-        filteredParams = getDbWithTags(tags)            
+        filteredParams = getDbWithTags(tags)
         params = []
         for param in filteredParams:
             if param in allparameters:
                 params.append(param)
         params.sort()
-        return params            
-        
+        return params
+
 def pollThread():
     """Poll data defined in conf.pollData and update the RRD database with the responses"""
     logger.debug('handlerTread started by signal handler')
@@ -122,7 +123,7 @@ def pollThread():
         return
     try:
         for data in conf.pollData:
-            # 'special cases' handled here, name starting with underscore are not polled from the protocol 
+            # 'special cases' handled here, name starting with underscore are not polled from the protocol
             if data[0]=='_':
                 if data=='_logtick':
                     items.append(str(conf.tickcounter))
@@ -145,7 +146,7 @@ def pollThread():
                             items.append(str(conf.tickcounter))
             conf.dbvalues[param] = value
         s=':'.join(items)
-        os.system("/usr/bin/rrdtool update "+conf.db+" N:"+s)
+        os.system("LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool update "+conf.db+" N:"+s)
     except IOError as e:
         logger.debug('IOError: '+e.strerror)
         logger.debug('   Trying Z01...')
@@ -154,7 +155,7 @@ def pollThread():
             protocol.getItem('oxygen_regulation')
         except IOError as e:
             logger.info('Getitem failed two times and reading Z01 also failed '+e.strerror)
-    
+
 
 def periodic_signal_handler(signum, frame):
     """Periodic signal handler. Start pollThread to do the work"""
@@ -166,40 +167,40 @@ def copy_db(direction='store'):
     """Copy db to nvdb or nvdb to db depending on direction"""
     global copy_in_progress
     if not 'copy_in_progress' in globals():
-        copy_in_progress = False        
+        copy_in_progress = False
     if not copy_in_progress:
         if direction=='store':
             try:
-                copy_in_progress = True     
-                os.system('cp %s %s'%(conf.db, conf.nvdb)) 
+                copy_in_progress = True
+                os.system('cp %s %s'%(conf.db, conf.nvdb))
                 logger.debug('copied %s to %s'%(conf.db, conf.nvdb))
-            except Exception, e:
+            except Exception as e:
                 logger.info(str(e))
                 logger.info('copy %s to %s failed'%(conf.db, conf.nvdb))
             finally:
                 copy_in_progress = False
         else:
             try:
-                copy_in_progress = True     
-                os.system('cp %s %s'%(conf.nvdb, conf.db))  
+                copy_in_progress = True
+                os.system('cp %s %s'%(conf.nvdb, conf.db))
                 logger.info('copied %s to %s'%(conf.nvdb, conf.db))
-            except Exception, e:
+            except Exception as e:
                 logger.info(str(e))
                 logger.info('copy %s to %s failed'%(conf.nvdb, conf.db))
             finally:
                 copy_in_progress = False
-    
+
 def db_copy_thread():
-    """Run periodically at db_store_interval to call copy_db""" 
-    copy_db('store')    
+    """Run periodically at db_store_interval to call copy_db"""
+    copy_db('store')
     ht = threading.Timer(conf.db_store_interval, db_copy_thread)
     ht.setDaemon(True)
     ht.start()
 
 def sigterm_handler(signum, frame):
     """Handles SIGTERM, waits for the database copy on shutdown if it is in a ramdisk"""
-    if conf.polling: 
-        if conf.nvdb != conf.db:   
+    if conf.polling:
+        if conf.nvdb != conf.db:
             copy_db('store')
         if not copy_in_progress:
             logger.info('exiting')
@@ -207,11 +208,11 @@ def sigterm_handler(signum, frame):
     else:
         logger.info('exiting')
         sys.exit(0)
-    
+
 def settings_pollthread(settings):
     """Loop through all items tagged as 'Settings' and write a message to the log when their values have changed"""
     global conf
-    allparameters = protocol.getDataBase()    
+    allparameters = protocol.getDataBase()
     for item in settings:
         if item in allparameters:
             param = allparameters[item]
@@ -223,7 +224,7 @@ def settings_pollthread(settings):
                         try:
                             logline=''
                             if not value==conf.dbvalues[item]:
-                                # These are settings but their values are changed by the firmware also, 
+                                # These are settings but their values are changed by the firmware also,
                                 # so small changes are suppressed from the log
                                 selfmodifying_params = {'feeder_capacity': 25, 'feeder_low': 0.5, 'feeder_high': 0.8, 'time_minutes': 2, 'magazine_content': 1}
                                 try:
@@ -232,7 +233,7 @@ def settings_pollthread(settings):
                                     # These items change by themselves, log change only if bigger than 0.3% of range
                                     if change > squelch:
                                         # Don't log clock turn around
-                                        if not (item == 'time_minutes' and change == 1439): 
+                                        if not (item == 'time_minutes' and change == 1439):
                                             logline = 'Parameter %s changed from %s to %s'%(item, conf.dbvalues[item], value)
                                             logger.info(logline)
                                             conf.tickcounter=int(time.time())
@@ -246,10 +247,10 @@ def settings_pollthread(settings):
                         except:
                             logger.info('trouble with parameter change detection, item:%s'%item)
                     else:
-                        conf.dbvalues[item]=value        
+                        conf.dbvalues[item]=value
                 except:
                     pass
-    # run this thread again after 30 seconds        
+    # run this thread again after 30 seconds
     ht = threading.Timer(30, settings_pollthread, args=(settings,))
     ht.setDaemon(True)
     ht.start()
@@ -260,22 +261,22 @@ def sendmail(msg):
 
 def sendmail_thread(msg):
     try:
-        username = conf.emailusername 
+        username = conf.emailusername
         password = conf.emailpassword
-        
+
         mail = mimetext(msg)
         mail['Subject'] = conf.emailsubject
         mail['From'] = conf.emailfromaddress
         mail['To'] = conf.emailtoaddress
 
         mailserver = smtp(conf.emailserver)
-        mailserver.starttls() 
-        mailserver.login(conf.emailusername, conf.emailpassword)  
-        mailserver.sendmail(mail['From'], mail['To'], mail.as_string())      
-        mailserver.quit()  
+        mailserver.starttls()
+        mailserver.login(conf.emailusername, conf.emailpassword)
+        mailserver.sendmail(mail['From'], mail['To'], mail.as_string())
+        mailserver.quit()
     except:
         logger.info('error trying to send email')
-    
+
 class MyDaemon(Daemon):
     """ Run after double fork with start, or directly with debug argument"""
     def run(self):
@@ -285,21 +286,21 @@ class MyDaemon(Daemon):
         logger.info('starting pelletMonitor')
 
         # Initialize protocol and setup the database according to version_string
-        global protocol 
+        global protocol
         global conf
         try:
             protocol = Protocol(conf.serial_device, conf.version_string)
         except:
             conf.polling=False
             logger.info('protocol setup failed')
-        
+
         # DBUS needs the gobject main loop, this way it seems to work...
         gobject.threads_init()
-        dbus.mainloop.glib.threads_init()    
+        dbus.mainloop.glib.threads_init()
         DBUSMAINLOOP = gobject.MainLoop()
         DBusGMainLoop(set_as_default=True)
         myservice = MyDBUSService(conf.dbus)
-        
+
         # Create SIGTERM signal handler
         signal.signal(signal.SIGTERM, sigterm_handler)
 
@@ -308,7 +309,7 @@ class MyDaemon(Daemon):
         logger.debug('created signalhandler')
         signal.setitimer(signal.ITIMER_REAL, 2, conf.poll_interval)
         logger.debug('started timer')
-        
+
         # Create RRD database if does not exist
         if conf.polling:
             if not os.path.exists(conf.nvdb):
@@ -324,24 +325,24 @@ class MyDaemon(Daemon):
                 ht.start()
 
         # Create and start settings_pollthread to log settings changed locally
-        settings = getDbWithTags(('Settings',))        
+        settings = getDbWithTags(('Settings',))
         ht = threading.Timer(4, settings_pollthread, args=(settings,))
         ht.setDaemon(True)
         ht.start()
-       
+
         # Execute glib main loop to serve DBUS connections
         DBUSMAINLOOP.run()
-        
+
         # glib main loop has quit, this should not happen
         logger.info("ending, what??")
-        
+
 class config:
     """Contains global configuration, parsed from the .conf file"""
     def __init__(self, filename):
         # Load the configuration file
         parser = ConfigParser.ConfigParser()
         parser.read(filename)
-    
+
         # These are read from the serial bus every 'pollinterval' second
         polldata = parser.items("pollvalues")
 
@@ -368,16 +369,16 @@ class config:
 
         # The persistent RRD database
         try:
-            self.nvdb = parser.get('conf', 'persistent_db') 
+            self.nvdb = parser.get('conf', 'persistent_db')
         except ConfigParser.NoOptionError:
             if self.polling:
-                self.nvdb = self.db        
+                self.nvdb = self.db
         try:
             self.db_store_interval = int(parser.get('conf', 'db_store_interval'))
         except ConfigParser.NoOptionError:
             self.db_store_interval = 3600
         try:
-            self.serial_device = parser.get('conf', 'serialport') 
+            self.serial_device = parser.get('conf', 'serialport')
         except ConfigParser.NoOptionError:
             self.serial_device = None
         try:
@@ -385,7 +386,7 @@ class config:
         except ConfigParser.NoOptionError:
             logger.info('chipversion not specified, using 0.0')
             self.version_string = '0.0'
-        try: 
+        try:
             self.poll_interval = int(parser.get('conf', 'pollinterval'))
         except ConfigParser.NoOptionError:
             logger.info('Invalid poll_interval setting, using 10s')
@@ -395,11 +396,11 @@ class config:
             # Build a command string to create the rrd database
             self.RrdCreateString="rrdtool create %s --step %u "%(self.nvdb, self.poll_interval)
             for item in self.pollData:
-                self.RrdCreateString += self.dataSources[item] % (item, self.poll_interval*4) + ' ' 
-            self.RrdCreateString += "RRA:AVERAGE:0,999:1:20000 " 
-            self.RrdCreateString += "RRA:AVERAGE:0,999:10:20000 " 
-            self.RrdCreateString += "RRA:AVERAGE:0,999:100:20000 " 
-            self.RrdCreateString += "RRA:AVERAGE:0,999:1000:20000" 
+                self.RrdCreateString += self.dataSources[item] % (item, self.poll_interval*4) + ' '
+            self.RrdCreateString += "RRA:AVERAGE:0,999:1:20000 "
+            self.RrdCreateString += "RRA:AVERAGE:0,999:10:20000 "
+            self.RrdCreateString += "RRA:AVERAGE:0,999:100:20000 "
+            self.RrdCreateString += "RRA:AVERAGE:0,999:1000:20000"
 
         # create logger
         logger = logging.getLogger('pellMon')
@@ -416,13 +417,13 @@ class config:
         fh.setFormatter(formatter)
         # add the handlers to the logger
         logger.addHandler(fh)
-        
+
         # dict to hold known recent values of db items
-        self.dbvalues = {} 
+        self.dbvalues = {}
 
         # count every parameter and mode change so rrd can draw a tick mark when that happens
         self.tickcounter = int(time.time())
-        
+
         try:
             self.emailusername = parser.get('email', 'username')
             self.emailpassword = parser.get('email', 'password')
@@ -457,7 +458,7 @@ def drop_privileges(uid_name='nobody', gid_name='nogroup'):
     os.setuid(running_uid)
 
     # Set umask
-    old_umask = os.umask(033)
+    old_umask = os.umask(0o33)
 
 
 #########################################################################################

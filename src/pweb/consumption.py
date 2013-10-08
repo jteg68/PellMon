@@ -27,30 +27,30 @@ from tempfile import NamedTemporaryFile
 
 lookup = TemplateLookup(directories=[os.path.join(os.path.dirname(__file__), 'html')])
 
-class Consumption(object):    
+class Consumption(object):
 
     def __init__(self, polling, db):
         self.polling=polling
         self.db = db
-        
+
     @cherrypy.expose
     def consumption(self):
         if not self.polling:
             return ""
         tmpl = lookup.get_template("consumption.html")
         return tmpl.render(username=cherrypy.session.get('_cp_username'))
-    
+
     @cherrypy.expose
-    def consumption24h(self):    
+    def consumption24h(self):
         if not self.polling:
              return None
         graph_file = os.path.join(os.path.dirname(self.db), 'consumption24h.png')
         cherrypy.response.headers['Pragma'] = 'no-cache'
-        now=int(time())/3600*3600
-    
+        now=int(1380704083)/3600*3600
+
         fd=NamedTemporaryFile(suffix='.png')
         graph_file=fd.name
-        RrdGraphString1="rrdtool graph "+graph_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 460 --height 300 --end %u --start %u-86400s "%(now,now)
+        RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+graph_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 460 --height 300 --end %u --start %u-86400s "%(now,now)
         RrdGraphString1=RrdGraphString1+"DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE "%(self.db,self.db)
         for h in range(0,24):
             start=(now-h*3600-3600)
@@ -59,20 +59,20 @@ class Consumption(object):
 
         RrdGraphString1=RrdGraphString1+" CDEF:cons=a,b,*,360,/,1000,/ VDEF:tot=cons,TOTAL CDEF:avg=a,POP,tot,24,/ VDEF:aver=avg,MAXIMUM GPRINT:tot:\"last 24h\: %.1lf kg\" GPRINT:aver:\"average %.2lf kg/h\" "
         RrdGraphString1=RrdGraphString1+" >>/dev/null"
-        os.system(RrdGraphString1)        
+        os.system(RrdGraphString1)
         return serve_fileobj(fd, content_type='image/png')
     @cherrypy.expose
-    def consumption7d(self):    
+    def consumption7d(self):
         if not self.polling:
              return None
         graph_file = os.path.join(os.path.dirname(self.db), 'consumption7d.png')
         cherrypy.response.headers['Pragma'] = 'no-cache'
         t=time()
-        now=int(time())/86400*86400-(localtime(t).tm_hour-int(t)%86400/3600)*3600
-        
+        now=int(1380704083)/86400*86400-(localtime(t).tm_hour-int(t)%86400/3600)*3600
+
         fd=NamedTemporaryFile(suffix='.png')
         graph_file=fd.name
-        RrdGraphString1="rrdtool graph "+graph_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 460 --height 300 --end %u --start %u-604800s "%(now,now)
+        RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+graph_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 460 --height 300 --end %u --start %u-604800s "%(now,now)
         RrdGraphString1=RrdGraphString1+"DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE "%(self.db,self.db)
         for h in range(0,7):
             start=(now-h*86400-86400)
@@ -81,21 +81,21 @@ class Consumption(object):
 
         RrdGraphString1=RrdGraphString1+" CDEF:cons=a,b,*,360,/,1000,/ VDEF:tot=cons,TOTAL CDEF:avg=a,POP,tot,7,/ VDEF:aver=avg,MAXIMUM GPRINT:tot:\"last week\: %.1lf kg\" GPRINT:aver:\"average %.2lf kg/day\" "
         RrdGraphString1=RrdGraphString1+" >>/dev/null"
-        os.system(RrdGraphString1)        
+        os.system(RrdGraphString1)
         return serve_fileobj(fd, content_type='image/png')
 
     @cherrypy.expose
-    def consumption1m(self):    
+    def consumption1m(self):
         if not self.polling:
              return None
         graph_file = os.path.join(os.path.dirname(self.db), 'consumption1m.png')
         cherrypy.response.headers['Pragma'] = 'no-cache'
         t=time()
-        now=int(time()+4*86400)/(86400*7)*(86400*7)-(localtime(t).tm_hour-int(t)%86400/3600)*3600 -4*86400
-        
+        now=int(1380704083+4*86400)/(86400*7)*(86400*7)-(localtime(t).tm_hour-int(t)%86400/3600)*3600 -4*86400
+
         fd=NamedTemporaryFile(suffix='.png')
         graph_file=fd.name
-        RrdGraphString1="rrdtool graph "+graph_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 460 --height 300 --end %u --start %u-4838400s "%(now,now)
+        RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+graph_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 460 --height 300 --end %u --start %u-4838400s "%(now,now)
         RrdGraphString1=RrdGraphString1+"DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE "%(self.db,self.db)
         for h in range(0,8):
             start=(now-h*(86400*7)-(86400*7))
@@ -104,22 +104,22 @@ class Consumption(object):
 
         RrdGraphString1=RrdGraphString1+" CDEF:cons=a,b,*,360,/,1000,/ VDEF:tot=cons,TOTAL CDEF:avg=a,POP,tot,8,/ VDEF:aver=avg,MAXIMUM GPRINT:tot:\"last two month\: %.1lf kg\" GPRINT:aver:\"average %.2lf kg/week\" "
         RrdGraphString1=RrdGraphString1+" >>/dev/null"
-        os.system(RrdGraphString1)        
+        os.system(RrdGraphString1)
         return serve_fileobj(fd, content_type='image/png')
-        
+
     @cherrypy.expose
-    def consumption1y(self):    
+    def consumption1y(self):
         if not self.polling:
              return None
         graph_file = os.path.join(os.path.dirname(self.db), 'consumption1y.png')
         cherrypy.response.headers['Pragma'] = 'no-cache'
         cherrypy.response.headers['Pragma'] = 'no-cache'
-        t=time()
+        t=1380704083
         now=int(time())/int(31556952/12)*int(31556952/12)-(localtime(t).tm_hour-int(t)%86400/3600)*3600
-        
+
         fd=NamedTemporaryFile(suffix='.png')
         graph_file=fd.name
-        RrdGraphString1="rrdtool graph "+graph_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 460 --height 300 --end %u --start %u-31556952s "%(now,now)
+        RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+graph_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 460 --height 300 --end %u --start %u-31556952s "%(now,now)
         RrdGraphString1=RrdGraphString1+"DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE "%(self.db,self.db)
         for h in range(0,12):
             start=(now-h*(86400*30)-(86400*30))
@@ -128,7 +128,7 @@ class Consumption(object):
 
         RrdGraphString1=RrdGraphString1+" CDEF:cons=a,b,*,360,/,1000,/ VDEF:tot=cons,TOTAL CDEF:avg=a,POP,tot,12,/ VDEF:aver=avg,MAXIMUM GPRINT:tot:\"last year\: %.1lf kg\" GPRINT:aver:\"average %.2lf kg/month\" "
         RrdGraphString1=RrdGraphString1+" >>/dev/null"
-        os.system(RrdGraphString1)        
+        os.system(RrdGraphString1)
         return serve_fileobj(fd, content_type='image/png')
-    
+
 

@@ -25,101 +25,110 @@ import ConfigParser
 from mako.template import Template
 from mako.lookup import TemplateLookup
 from cherrypy.lib import caching
-from gi.repository import Gio, GLib, GObject
+#from gi.repository import Gio, GLib, GObject
 import simplejson
 import threading, Queue
-from web import *
+from pweb import *
 from time import time
 import threading
 import sys
-from web import __file__ as webpath
+from pweb import __file__ as webpath
 import argparse
 import pwd
 import grp
 from tempfile import NamedTemporaryFile
+from srv import Protocol, getDbWithTags, dataDescriptions
+
 
 class DbusNotConnected(Exception):
     pass
 
 class Dbus_handler:
     def __init__(self, bus='SESSION'):
-        if bus=='SYSTEM':
-            self.bustype=Gio.BusType.SYSTEM
-        else:
-            self.bustype=Gio.BusType.SESSION
-        
+        self.p=Protocol('dummy','6.33')
+
     def setup(self):
         # Needed to be able to use threads with a glib main loop running
-        GObject.threads_init()
-        # A main loop is needed for dbus "name watching" to work
-        main_loop = GObject.MainLoop()
-        # The glib main loop gets along with the cherrypy main loop if run in it's own thread
-        DBUSLOOPTHREAD = threading.Thread(name='glib_mainloop', target=main_loop.run)
-        # This causes the dbus main loop thread to just die when the main thread exits
-        DBUSLOOPTHREAD.setDaemon(True)
-        # Start it here, thes must happen after the daemonizer double fork
-        DBUSLOOPTHREAD.start()
-        self.notify = None
-        self.bus = Gio.bus_get_sync(self.bustype, None)
-        Gio.bus_watch_name(
-            self.bustype,
-            'org.pellmon.int',
-            Gio.DBusProxyFlags.NONE,
-            self.dbus_connect,
-            self.dbus_disconnect,
-        )
+        pass
 
     def dbus_connect(self, connection, name, owner):
-        self.notify = Gio.DBusProxy.new_sync(
-            self.bus,
-            Gio.DBusProxyFlags.NONE,
-            None,
-            'org.pellmon.int',
-            '/org/pellmon/int',
-            'org.pellmon.int',
-            None,
-        )
+        pass
+
 
     def dbus_disconnect(self, connection, name):
-        if self.notify:
-            self.notify = None
+        #if self.notify:
+        #    self.notify = None
+        pass
 
     def getItem(self, itm):
-        if self.notify:
-            return self.notify.GetItem('(s)',itm)
-        else:
-            raise DbusNotConnected("server not running")
+        return self.p.getItem(itm)
 
     def setItem(self, item, value):
-        if self.notify:
-            return self.notify.SetItem('(ss)',item, value)
-        else:
-            raise DbusNotConnected("server not running")
+        return('OK')
 
     def getdb(self):
-        if self.notify:
-            return self.notify.GetDB()
+        """Get list of all data/parameter/command items"""
+        l=[]
+        dataBase = self.p.getDataBase()
+        for item in dataBase:
+            l.append(item)
+        l.sort()
+        if l==[]:
+            return ['unsupported_version']
         else:
-            raise DbusNotConnected("server not running")
-
-    def getDBwithTags(self, tags):
-        if self.notify:
-            return self.notify.GetDBwithTags('(as)',tags)
-        else:
-            raise DbusNotConnected("server not running")
+            return l
 
     def getFullDB(self, tags):
-        if self.notify:
-            db = self.notify.GetFullDB('(as)', tags)
-            return db
+        """Get list of all data/parameter/command items"""
+        l=[]
+        allparameters = self.p.getDataBase()
+        filteredParams = self.getDbWithTags(tags)
+        params = []
+        for param in filteredParams:
+            if param in allparameters:
+                params.append(param)
+        params.sort()
+        for item in params:
+            data={}
+            data['name']=item
+            if hasattr(allparameters[item], 'max'):
+                data['max']=(allparameters[item].max)
+            if hasattr(allparameters[item], 'min'):
+                data['min']=(allparameters[item].min)
+            if hasattr(allparameters[item], 'frame'):
+                if hasattr(allparameters[item], 'address'):
+                    data['type']=('R/W')
+                else:
+                    data['type']=('R')
+            else:
+                data['type']=('W')
+            data['longname'] = dataDescriptions[item][0]
+            data['unit'] = dataDescriptions[item][1]
+            data['description'] = dataDescriptions[item][2]
+            l.append(data)
+        if l==[]:
+            return ['unsupported_version']
         else:
-            raise DbusNotConnected("server not running")
-    
+            return l
+
+    def getDbWithTags(self, tags):
+        """Get the menutags for param"""
+        allparameters = self.p.getDataBase()
+        filteredParams = getDbWithTags(tags)
+        params = []
+        for param in filteredParams:
+            if param in allparameters:
+                params.append(param)
+        params.sort()
+        return params
+
+
 class PellMonWebb:
     def __init__(self):
         self.logview = LogViewer(logfile)
         self.auth = AuthController(credentials)
         self.consumptionview = Consumption(polling, db)
+
 
     @cherrypy.expose
     def form1(self, **args):
@@ -185,8 +194,8 @@ class PellMonWebb:
 
     @cherrypy.expose
     def image(self, **args):
-        if not polling:
-             return None
+        #if not polling:
+        #     return None
         if not cherrypy.session.get('timeChoice'):
             cherrypy.session['timeChoice'] = 'time1h'
         if not cherrypy.session.get('time'):
@@ -195,31 +204,34 @@ class PellMonWebb:
         offset = cherrypy.session['time']
         graphTimeStart=str(graphTime + offset)
         graphTimeEnd=str(offset)
-        #Build the command string to make a graph from the database         
+        #Build the command string to make a graph from the database
         fd=NamedTemporaryFile(suffix='.png')
         graph_file=fd.name
-        RrdGraphString1="rrdtool graph "+graph_file+" --lower-limit 0 --right-axis 1:0 --width 760 --height 400 --end now-"+graphTimeEnd+"s --start now-"+graphTimeStart+"s "
+        #graph_file = '/home/motoz/test.png'
+        RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+graph_file+" --lower-limit 0 --right-axis 1:0 --width 760 --height 400 --end 1380704083-"+graphTimeEnd+"s --start 1380704083-"+graphTimeStart+"s "
         RrdGraphString1=RrdGraphString1+"DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
         for key,value in polldata:
-            if cherrypy.session.get(value)=='yes' and colorsDict.has_key(key):
+           if cherrypy.session.get(value)=='yes' and colorsDict.has_key(key):
                 RrdGraphString1=RrdGraphString1+"DEF:%s="%key+db+":%s:AVERAGE LINE1:%s%s:\"%s\" "% (value, key, colorsDict[key], value)
         RrdGraphString1=RrdGraphString1+">>/dev/null"
-
+        #return RrdGraphString1
         os.system(RrdGraphString1)
         cherrypy.response.headers['Pragma'] = 'no-cache'
         return serve_fileobj(fd, content_type='image/png')
+        #return serve_file('/home/motoz/PellMon/graph.png', content_type='image/png')
 
     @cherrypy.expose
     def consumption(self, **args):
         if not polling:
              return None
         if consumption_graph:
-            #Build the command string to make a graph from the database         
-            now=int(time())/3600*3600
-            
+            #Build the command string to make a graph from the database
+            #now=int(time())/3600*3600
+            now=int(1380704083)/3600*3600
+
             fd=NamedTemporaryFile(suffix='.png')
             consumption_file=fd.name
-            RrdGraphString1="rrdtool graph "+consumption_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 760 --height 400 --end %u --start %u-86400s "%(now,now)
+            RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+consumption_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 760 --height 400 --end %u --start %u-86400s "%(now,now)
             RrdGraphString1=RrdGraphString1+"DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE "%(db,db)
             for h in range(0,24):
                 start=(now-h*3600-3600)
@@ -263,7 +275,7 @@ class PellMonWebb:
     @cherrypy.expose
     @require() #requires valid login
     def parameters(self, t1='', t2='', t3='', t4='', **args):
-        # Get list of data/parameters 
+        # Get list of data/parameters
         try:
             level=cherrypy.session['level']
         except:
@@ -276,7 +288,7 @@ class PellMonWebb:
             # Store the queue in the session
             cherrypy.session['paramReaderQueue'] = paramQueue
             ht = threading.Thread(target=parameterReader, args=(paramQueue,))
-            ht.start()    
+            ht.start()
             values=['']*len(parameterlist)
             params={}
             paramlist=[]
@@ -289,7 +301,7 @@ class PellMonWebb:
                     paramlist.append(item)
                 if item['type'] == 'W':
                     commandlist.append(item)
-                    
+
                 params[item['name']] = ' '
                 if args.has_key(item['name']):
                     if cherrypy.request.method == "POST":
@@ -353,7 +365,7 @@ class PellMonWebb:
                     checkboxes.append((val,''))
         tmpl = lookup.get_template("graphconf.html")
         return tmpl.render(checkboxes=checkboxes, empty=empty, timeChoices=timeChoices, timeNames=timeNames, timeChoice=cherrypy.session.get('timeChoice'))
-            
+
     @cherrypy.expose
     def index(self, **args):
         autorefresh = cherrypy.session.get('autorefresh')=='yes'
@@ -386,6 +398,9 @@ lookup = TemplateLookup(directories=[os.path.join(HERE, 'html')])
 parser = ConfigParser.ConfigParser()
 config_file = 'pellmon.conf'
 
+def start():
+    return cherrypy.Application(PellMonWebb(),  '/', config=app_conf)
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(prog='pellmonweb')
     argparser.add_argument('-D', '--DAEMONIZE', action='store_true', help='Run as daemon')
@@ -400,7 +415,7 @@ if __name__ == '__main__':
 
     # The dbus main_loop thread can't be started before double fork to daemon, the
     # daemonizer plugin has priority 65 so it's executed before dbus_handler.setup
-    cherrypy.engine.subscribe('start', dbus.setup, 90)
+    #cherrypy.engine.subscribe('start', dbus.setup, 90)
 
     engine = cherrypy.engine
 
@@ -420,7 +435,7 @@ if __name__ == '__main__':
         plugins.DropPrivileges(engine, uid=uid, gid=gid, umask=033).subscribe()
 
     config_file = args.CONFIG
-
+config_file='/home/motoz/PellMon/src/pellmon.conf'
 # Load the configuration file
 if not os.path.isfile(config_file):
     config_file = '/etc/pellmon.conf'
@@ -428,18 +443,19 @@ if not os.path.isfile(config_file):
     config_file = '/usr/local/etc/pellmon.conf'
 if not os.path.isfile(config_file):
     print "config file not found"
-    sys.exit(1) 
+    sys.exit(1)
 parser.read(config_file)
-    
+
 # The RRD database, updated by pellMon
 try:
     polling = True
-    db = parser.get('conf', 'database') 
+    db = parser.get('conf', 'database')
     graph_file = os.path.join(os.path.dirname(db), 'graph.png')
 except ConfigParser.NoOptionError:
+    pass
     polling = False
     db = ''
-    
+
 # the colors to use when drawing the graph
 colors = parser.items('graphcolors')
 colorsDict = {}
@@ -509,7 +525,7 @@ if __name__=="__main__":
 else:
     # The dbus main_loop thread can't be started before double fork to daemon, the
     # daemonizer plugin has priority 65 so it's executed before dbus_handler.setup
-    cherrypy.engine.subscribe('start', dbus.setup, 90)
+    #cherrypy.engine.subscribe('start', dbus.setup, 90)
     dbus = Dbus_handler('SYSTEM')
-    cherrypy.tree.mount(PellMonWebb(), '/', config=app_conf)
-
+    #application = cherrypy.tree.mount(PellMonWebb(), '/', config=app_conf)
+    pass
