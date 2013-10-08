@@ -46,6 +46,16 @@ class DbusNotConnected(Exception):
 class Dbus_handler:
     def __init__(self, bus='SESSION'):
         self.p=Protocol('dummy','6.33')
+    def getDbWithTags(self, tags):
+        """Get the menutags for param"""
+        allparameters = self.p.getDataBase()
+        filteredParams = getDbWithTags(tags)
+        params = []
+        for param in filteredParams:
+            if param in allparameters:
+                params.append(param)
+        params.sort()
+        return params
 
     def setup(self):
         # Needed to be able to use threads with a glib main loop running
@@ -111,18 +121,6 @@ class Dbus_handler:
         else:
             return l
 
-    def getDbWithTags(self, tags):
-        """Get the menutags for param"""
-        allparameters = self.p.getDataBase()
-        filteredParams = getDbWithTags(tags)
-        params = []
-        for param in filteredParams:
-            if param in allparameters:
-                params.append(param)
-        params.sort()
-        return params
-
-
 class PellMonWebb:
     def __init__(self):
         self.logview = LogViewer(logfile)
@@ -146,16 +144,6 @@ class PellMonWebb:
         raise cherrypy.HTTPRedirect('/')
 
     @cherrypy.expose
-    def form2(self, **args):
-        # The radiobuttons are submitted with 'post'
-        if cherrypy.request.method == "POST":
-            if args.has_key('graphtime') and args.get('graphtime') in timeChoices:
-                cherrypy.session['timeChoice']=args.get('graphtime')
-        # redirect back after setting selection in session
-        raise cherrypy.HTTPRedirect('/')
-
-
-    @cherrypy.expose
     def autorefresh(self, **args):
         if cherrypy.request.method == "POST":
             if args.has_key('autorefresh') and args.get('autorefresh') == 'yes':
@@ -166,49 +154,45 @@ class PellMonWebb:
         return simplejson.dumps(dict(enabled=cherrypy.session['autorefresh']))
 
     @cherrypy.expose
-    def left(self, **args):
-        if not cherrypy.session.get('time'):
-            cherrypy.session['time'] = 0
+    def image(self, timeChoice='time1h', direction='', **args):
+        if not polling:
+             return None
         if not cherrypy.session.get('timeChoice'):
             cherrypy.session['timeChoice'] = 'time1h'
-        if cherrypy.request.method == "POST":
+        if not cherrypy.session.get('time'):
+            cherrypy.session['time'] = 0
+        if not timeChoice == cherrypy.session.get('timeChoice'):
+            cherrypy.session['timeChoice'] = timeChoice
+        if direction == 'left':
             seconds=timeSeconds[timeChoices.index(cherrypy.session['timeChoice'])]
             cherrypy.session['time']=cherrypy.session['time']+seconds
-        cherrypy.response.headers['Content-Type'] = 'application/json'
-        return simplejson.dumps(dict(offset=cherrypy.session['time']))
-
-    @cherrypy.expose
-    def right(self, **args):
-        if not cherrypy.session.get('time'):
-            cherrypy.session['time'] = 0
-        if not cherrypy.session.get('timeChoice'):
-            cherrypy.session['timeChoice'] = 'time1h'
-        if cherrypy.request.method == "POST":
+        elif direction == 'right':
             seconds=timeSeconds[timeChoices.index(cherrypy.session['timeChoice'])]
             time=cherrypy.session['time']-seconds
             if time<0:
                 time=0
             cherrypy.session['time']=time
-        cherrypy.response.headers['Content-Type'] = 'application/json'
-        return simplejson.dumps(dict(offset=cherrypy.session['time']))
 
-    @cherrypy.expose
-    def image(self, **args):
-        #if not polling:
-        #     return None
-        if not cherrypy.session.get('timeChoice'):
-            cherrypy.session['timeChoice'] = 'time1h'
-        if not cherrypy.session.get('time'):
-            cherrypy.session['time'] = 0
-        graphTime = timeSeconds[timeChoices.index(cherrypy.session.get('timeChoice'))]
-        offset = cherrypy.session['time']
+        if not cherrypy.request.params.get('maxWidth'):
+            maxWidth = '440'
+        else:
+            maxWidth = cherrypy.request.params.get('maxWidth')
+
+        if(int(maxWidth) < 440):
+            maxWidth = '440'
+
+        # The width passed to rrdtool does not include the sidebars
+        graphWidth = str(maxWidth)
+
+        offset = cherrypy.session.get('time')
+        graphTime = timeSeconds[timeChoices.index(timeChoice)]
         graphTimeStart=str(graphTime + offset)
         graphTimeEnd=str(offset)
         #Build the command string to make a graph from the database
         fd=NamedTemporaryFile(suffix='.png')
         graph_file=fd.name
         #graph_file = '/home/motoz/test.png'
-        RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+graph_file+" --lower-limit 0 --right-axis 1:0 --width 760 --height 400 --end 1380704083-"+graphTimeEnd+"s --start 1380704083-"+graphTimeStart+"s "
+        RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+graph_file+" --lower-limit 0 --right-axis 1:0 --full-size-mode --width "+graphWidth+" --height 400 --end 1380704083-"+graphTimeEnd+"s --start 1380704083-"+graphTimeStart+"s "
         RrdGraphString1=RrdGraphString1+"DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
         for key,value in polldata:
            if cherrypy.session.get(value)=='yes' and colorsDict.has_key(key):
@@ -226,12 +210,22 @@ class PellMonWebb:
              return None
         if consumption_graph:
             #Build the command string to make a graph from the database
-            #now=int(time())/3600*3600
             now=int(1380704083)/3600*3600
+
+            if not cherrypy.request.params.get('maxWidth'):
+                maxWidth = '440';
+            else:
+                maxWidth = cherrypy.request.params.get('maxWidth')
+
+            if(int(maxWidth) < 440):
+                maxWidth = '440'
+
+            # The width passed to rrdtool does not include the sidebars
+            graphWidth = str(maxWidth)
 
             fd=NamedTemporaryFile(suffix='.png')
             consumption_file=fd.name
-            RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+consumption_file+" --right-axis 1:0 --right-axis-format %%1.1lf --width 760 --height 400 --end %u --start %u-86400s "%(now,now)
+            RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+consumption_file+" --full-size-mode --width "+graphWidth+" --right-axis 1:0 --right-axis-format %%1.1lf --height 400 --end %u --start %u-86400s "%(now,now)
             RrdGraphString1=RrdGraphString1+"DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE "%(db,db)
             for h in range(0,24):
                 start=(now-h*3600-3600)
@@ -302,20 +296,6 @@ class PellMonWebb:
                 if item['type'] == 'W':
                     commandlist.append(item)
 
-                params[item['name']] = ' '
-                if args.has_key(item['name']):
-                    if cherrypy.request.method == "POST":
-                        # set parameter
-                        try:
-                            values[parameterlist.index(item['name'])]=dbus.setItem(item['name'], args[item['name']][1])
-                        except:
-                            values[parameterlist.index(item['name'])]='error'
-                    else:
-                        # get parameter
-                        try:
-                            values[parameterlist.index(item['name'])]=dbus.getItem(item['name'])
-                        except:
-                            values[parameterlist.index(item['name'])]='error'
             tmpl = lookup.get_template("parameters.html")
             return tmpl.render(username=cherrypy.session.get('_cp_username'), data = datalist, params=paramlist, commands=commandlist, values=values, level=level, heading=t1)
         except DbusNotConnected:
@@ -375,7 +355,7 @@ class PellMonWebb:
                 if cherrypy.session.get(val)=='yes':
                     empty=False
         tmpl = lookup.get_template("index.html")
-        return tmpl.render(username=cherrypy.session.get('_cp_username'), empty=empty, autorefresh=autorefresh )
+        return tmpl.render(username=cherrypy.session.get('_cp_username'), empty=empty, autorefresh=autorefresh, timeChoices=timeChoices, timeNames=timeNames, timeChoice=cherrypy.session.get('timeChoice'))
 
 def parameterReader(q):
     parameterlist=dbus.getdb()

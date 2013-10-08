@@ -1,35 +1,82 @@
-var refreshTimer = null;
+var refreshTimer = null,
+	windowResizeTimer = null;
 
-var refreshImage = function() {
-	img = document.getElementById("graph");
-	img.src="image?rand=" + Math.random();
+/**
+ * Refresh/lazy load graphs at page load
+ */
+$(function() {
+	refreshGraph();
+	refreshConsumption();
+});
+
+/**
+ * Refresh graphs when the window is resized
+ */
+$(window).on('resize', function(e) {
+	if(windowResizeTimer !== null) {
+		clearTimeout(windowResizeTimer);
+	}
+
+	windowResizeTimer = setTimeout(function() {
+		refreshAll();
+	}, 300);
+});
+
+var getMaxWidth = function() {
+	return 	getGraph().closest('div').innerWidth();
+}
+
+var refreshAll = function() {
+	refreshGraph();
+	refreshConsumption();
+}
+
+var refreshGraph = function() {
+	var graph = getGraph(),
+		timeChoice = graph.data('time-choice'),
+		direction = graph.data('direction'),
+		maxWidth = getMaxWidth();
+
+	graph.data('direction', '');
+
+	graph.attr('src', graph.data('src') + '/' + timeChoice + '/' + direction + '?random=' + Math.random() + '&maxWidth=' + maxWidth);
+}
+
+var refreshConsumption = function() {
+	var consumption = $('#consumption'),
+		maxWidth = getMaxWidth();
+
+	consumption.attr('src', consumption.data('src') + '?random=' + Math.random() + '&maxWidth=' + maxWidth);
 }
 
 var startImageRefresh = function() {
-	refreshTimer = setInterval(refreshImage, 10000);
+	refreshTimer = setInterval(refreshGraph, 10000);
 }
 
-var target = document.getElementById('spin');
-var spinner = new Spinner().spin();
+var getGraph = function() {
+	return $('#graph');
+}
+
+$('.timeChoice').click(function(e) {
+	e.preventDefault();
+	var me = $(this);
+
+	getGraph().data('time-choice', me.data('time-choice'));
+	refreshGraph();
+});
 
 $('.btn.left').click(function(e) {
 	e.preventDefault();
-	$.post('/left', {}, function(data) {
-		refreshImage();
-	});
-    spinner.spin(target);
+
+	getGraph().data('direction', 'left');
+	refreshGraph();
 });
 
 $('.btn.right').click(function(e) {
 	e.preventDefault();
-	$.post('/right', {}, function(data) {
-		refreshImage();
-	});
-    spinner.spin(target);
-});
 
-$("#graph").bind('load', function() {
-    spinner.spin(false)
+	getGraph().data('direction', 'right');
+	refreshGraph();
 });
 
 $('.btn.autorefresh').click(function(e) {
@@ -67,7 +114,7 @@ $('.btn.autorefresh').click(function(e) {
 		setAutorefresh('yes', function() {
 			startImageRefresh();
 		});
-		refreshImage();
+		refreshGraph();
 	}
 });
 
