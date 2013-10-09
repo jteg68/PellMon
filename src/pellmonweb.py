@@ -154,51 +154,71 @@ class PellMonWebb:
         return simplejson.dumps(dict(enabled=cherrypy.session['autorefresh']))
 
     @cherrypy.expose
-    def image(self, timeChoice='time1h', direction='', **args):
+    def image(self, **args):
         if not polling:
-             return None
-        if not cherrypy.session.get('timeChoice'):
-            cherrypy.session['timeChoice'] = 'time1h'
-        if not cherrypy.session.get('time'):
-            cherrypy.session['time'] = 0
-        if not timeChoice == cherrypy.session.get('timeChoice'):
+            return None
+        try:
+            timeChoice = args['timeChoice']
+            timeChoice = timeChoices.index(timeChoice)
             cherrypy.session['timeChoice'] = timeChoice
-        if direction == 'left':
-            seconds=timeSeconds[timeChoices.index(cherrypy.session['timeChoice'])]
-            cherrypy.session['time']=cherrypy.session['time']+seconds
-        elif direction == 'right':
-            seconds=timeSeconds[timeChoices.index(cherrypy.session['timeChoice'])]
-            time=cherrypy.session['time']-seconds
-            if time<0:
-                time=0
-            cherrypy.session['time']=time
+        except:
+            pass
 
-        if not cherrypy.request.params.get('maxWidth'):
-            maxWidth = '440'
-        else:
-            maxWidth = cherrypy.request.params.get('maxWidth')
+        try:
+            timeChoice = cherrypy.session['timeChoice']
+            seconds=timeSeconds[timeChoice]
+        except:
+            seconds=timeSeconds[0]
 
-        if(int(maxWidth) < 440):
-            maxWidth = '440'
+        # Set time offset with ?time=xx
+        try:
+            time = int(args['time'])
+            # And save it in the session
+            cherrypy.session['time'] = str(time)
+        except:
+            try:
+                time = int(cherrypy.session['time'])
+            except:
+                time = 0
 
-        # The width passed to rrdtool does not include the sidebars
-        graphWidth = str(maxWidth)
 
-        offset = cherrypy.session.get('time')
-        graphTime = timeSeconds[timeChoices.index(timeChoice)]
-        graphTimeStart=str(graphTime + offset)
-        graphTimeEnd=str(offset)
+        try:
+            direction = args['direction']
+            if direction == 'left':
+                time=time+seconds
+            elif direction == 'right':
+                time=time-seconds
+                if time<0:
+                    time=0
+            cherrypy.session['time']=str(time)
+        except:
+            pass
+
+        try:
+            graphWidth = args.get('maxWidth')
+            test = int(graphWidth) # should be int
+        except:
+            graphWidth = '440' # Default bootstrap 3 grid size
+
+        graphTimeStart=str(seconds + time)
+        graphTimeEnd=str(time)
+
         #Build the command string to make a graph from the database
         fd=NamedTemporaryFile(suffix='.png')
         graph_file=fd.name
-        #graph_file = '/home/motoz/test.png'
-        RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+graph_file+" --lower-limit 0 --right-axis 1:0 --full-size-mode --width "+graphWidth+" --height 400 --end 1380704083-"+graphTimeEnd+"s --start 1380704083-"+graphTimeStart+"s "
-        RrdGraphString1=RrdGraphString1+"DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
+
+        if int(graphWidth)>500:
+            rightaxis = '--right-axis 1:0'
+        else:
+            rightaxis = ''
+        RrdGraphString1 = "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+ graph_file + ' --disable-rrdtool-tag' +\
+            " --lower-limit 0 %s --full-size-mode --width "%rightaxis + graphWidth + \
+            " --height 400 --end 1380704083-" + graphTimeEnd + "s --start 1380704083-" + graphTimeStart + "s " + \
+            "DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
         for key,value in polldata:
-           if cherrypy.session.get(value)=='yes' and colorsDict.has_key(key):
+            if cherrypy.session.get(value)!='no' and colorsDict.has_key(key):
                 RrdGraphString1=RrdGraphString1+"DEF:%s="%key+db+":%s:AVERAGE LINE1:%s%s:\"%s\" "% (value, key, colorsDict[key], value)
         RrdGraphString1=RrdGraphString1+">>/dev/null"
-        #return RrdGraphString1
         os.system(RrdGraphString1)
         cherrypy.response.headers['Pragma'] = 'no-cache'
         return serve_fileobj(fd, content_type='image/png')
@@ -213,19 +233,17 @@ class PellMonWebb:
             now=int(1380704083)/3600*3600
 
             if not cherrypy.request.params.get('maxWidth'):
-                maxWidth = '440';
+                maxWidth = '440'; # Default bootstrap 3 grid size
             else:
                 maxWidth = cherrypy.request.params.get('maxWidth')
 
-            if(int(maxWidth) < 440):
-                maxWidth = '440'
-
             # The width passed to rrdtool does not include the sidebars
-            graphWidth = str(maxWidth)
+            graphWidth = str(int(maxWidth))
 
             fd=NamedTemporaryFile(suffix='.png')
             consumption_file=fd.name
-            RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+consumption_file+" --full-size-mode --width "+graphWidth+" --right-axis 1:0 --right-axis-format %%1.1lf --height 400 --end %u --start %u-86400s "%(now,now)
+
+            RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+consumption_file+" --disable-rrdtool-tag --full-size-mode --width "+graphWidth+" --right-axis 1:0 --right-axis-format %%1.1lf --height 400 --end %u --start %u-86400s "%(now,now)
             RrdGraphString1=RrdGraphString1+"DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE "%(db,db)
             for h in range(0,24):
                 start=(now-h*3600-3600)
@@ -332,19 +350,16 @@ class PellMonWebb:
 
     @cherrypy.expose
     def graphconf(self):
-        if not cherrypy.session.get('timeChoice'):
-            cherrypy.session['timeChoice']=timeChoices[0]
         checkboxes=[]
         empty=True
         for key, val in polldata:
             if colorsDict.has_key(key):
-                if cherrypy.session.get(val)=='yes':
+                if cherrypy.session.get(val) in ['yes', None]:
                     checkboxes.append((val,True))
-                    empty=False
                 else:
                     checkboxes.append((val,''))
         tmpl = lookup.get_template("graphconf.html")
-        return tmpl.render(checkboxes=checkboxes, empty=empty, timeChoices=timeChoices, timeNames=timeNames, timeChoice=cherrypy.session.get('timeChoice'))
+        return tmpl.render(checkboxes=checkboxes, empty=False)
 
     @cherrypy.expose
     def index(self, **args):
@@ -355,7 +370,7 @@ class PellMonWebb:
                 if cherrypy.session.get(val)=='yes':
                     empty=False
         tmpl = lookup.get_template("index.html")
-        return tmpl.render(username=cherrypy.session.get('_cp_username'), empty=empty, autorefresh=autorefresh, timeChoices=timeChoices, timeNames=timeNames, timeChoice=cherrypy.session.get('timeChoice'))
+        return tmpl.render(username=cherrypy.session.get('_cp_username'), empty=False, autorefresh=autorefresh, timeChoices=timeChoices, timeNames=timeNames, timeChoice=cherrypy.session.get('timeChoice'))
 
 def parameterReader(q):
     parameterlist=dbus.getdb()

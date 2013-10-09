@@ -1,5 +1,5 @@
 <%inherit file="layout.html"/>
-<%! scripts = ['spin.js','index.js','logview.js'] %>
+<%! scripts = ['spin.js?v=0.1','index.js?v=0.1','logview.js?v=0.1'] %>
 
 <%def name="title()">
 	Graph
@@ -12,7 +12,7 @@
 
 	    <h4>Graph</h4>
             <div>
-            <img class="graph image-responsive image-lazy" id="graph" data-time-choice="time1h" data-direction="" data-src="image" src="media/img/spinner.gif" />
+            <img class="graph image-responsive image-lazy" id="graph" data-time-choice="" data-direction="" data-src="image" src="media/img/spinner.gif" />
             </div>
         <p>
 		Show:

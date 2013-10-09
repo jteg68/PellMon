@@ -1,14 +1,14 @@
 <%inherit file="layout.html"/>
-<%! scripts = ['parameters.js'] %>
+<%! scripts = ['parameters.js?v=0.1'] %>
 <%def name="title()">
        	${heading}
 </%def>
 
 <style>
 	dd,dt {
-		cursor: pointer;	
+		cursor: pointer;
 	}
-	
+
 	.dl-horizontal dt {
 		text-align: left;
 	}
@@ -21,7 +21,7 @@
 		background-color: #F2DEDE;
 		color: #B94A48;
 	}
-	
+
 </style>
 <div class="container">
     <h1>${heading}</h1>
@@ -83,7 +83,7 @@
             	</div>
         </div>
         %endif
-	</div>	
+	</div>
 
 	<div class="row">
         %if len(data)>0:
@@ -112,7 +112,7 @@
 		<dl class="dl dl-horizontal">
                 %for key in params:
                         <dt class="editable">${key['longname'].title()}</dt>
-			<dd> 
+			<dd>
 				<span id="${key['name']}-value" class="editable param value"></span> ${key['unit'].decode('utf-8')}
 				<div style="z-index: 10000" class="details hidden">
 					%if key['description']:
@@ -127,7 +127,7 @@
 					</form>
 				</div>
 			</dd>
-	
+
                 %endfor
 		</dl>
             </div>
