@@ -48,7 +48,7 @@ class DbusNotConnected(Exception):
 
 class Dbus_handler:
     def __init__(self, bus='SESSION'):
-        self.p=Protocol('dummy','6.33')
+        self.p=Protocol(None,'')
     def getDbWithTags(self, tags):
         """Get the menutags for param"""
         allparameters = self.p.getDataBase()
@@ -120,15 +120,12 @@ class Dbus_handler:
             data['description'] = dataDescriptions[item][2]
             l.append(data)
         if l==[]:
-            return ['unsupported_version']
+            return []
         else:
             return l
 
     def getMenutags(self):
-        if self.notify:
-            return self.notify.getMenutags()
-        else:
-            raise DbusNotConnected("server not running")
+        return ['Overview', 'Blower', 'Ignition', 'Feeder', 'Oxygen', 'Timer', 'Cleaning', 'Temps']
 
 class PellMonWeb:
     def __init__(self):
@@ -173,7 +170,7 @@ class PellMonWeb:
         if len(colorsDict) == 0:
             return None
 
-        # Set x axis time span with ?timespan=xx 
+        # Set x axis time span with ?timespan=xx
         try:
             timespan = int(args['timespan'])
         except:
@@ -182,7 +179,7 @@ class PellMonWeb:
             except:
                 timespan = 3600
 
-        # Offset x-axis with ?timeoffset=xx 
+        # Offset x-axis with ?timeoffset=xx
         try:
             time = int(args['timeoffset'])
         except:
@@ -191,7 +188,7 @@ class PellMonWeb:
             except:
                 time = 0
 
-        # Set graph width with ?width=xx 
+        # Set graph width with ?width=xx
         try:
             graphWidth = int(args['width'])
         except:
@@ -202,7 +199,7 @@ class PellMonWeb:
         if graphWidth > 5000:
             graphWidth = 5000
 
-        # Set graph height with ?height=xx 
+        # Set graph height with ?height=xx
         try:
             graphHeight = int(args['height'])
         except:
@@ -257,7 +254,7 @@ class PellMonWeb:
         #Build the command string to make a graph from the database
         RrdGraphString1 =  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --disable-rrdtool-tag --border 1 "+ legends
         RrdGraphString1 += " --lower-limit 0 %s --full-size-mode --width %u"%(rightaxis, graphWidth) + " --right-axis-format %1.0lf "
-        RrdGraphString1 += " --height %s --end now-"%graphHeight + graphTimeEnd + "s --start now-" + graphTimeStart + "s "
+        RrdGraphString1 += " --height %s --end 1380700483-"%graphHeight + graphTimeEnd + "s --start 1380700483-" + graphTimeStart + "s "
         RrdGraphString1 += "DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
 
         for line in graph_lines:
@@ -271,7 +268,7 @@ class PellMonWeb:
                     except:
                         gain = 1
                         offset = 0
-                    RrdGraphString1+="CDEF:%s_s=%s,%d,+,%d,/ "%(line['name'], line['name'], offset, gain)    
+                    RrdGraphString1+="CDEF:%s_s=%s,%d,+,%d,/ "%(line['name'], line['name'], offset, gain)
                     RrdGraphString1+="LINE1:%s_s%s:\"%s\" "% (line['name'], line['color'], line['name'])
                 else:
                     RrdGraphString1+="LINE1:%s%s:\"%s\" "% (line['name'], line['color'], line['name'])
@@ -282,37 +279,42 @@ class PellMonWeb:
 
     @cherrypy.expose
     def silolevel(self, **args):
-        if not polling:
-             return None
         try:
-            reset_level=dbus.getItem('silo_reset_level')
-            reset_time=dbus.getItem('silo_reset_time')
-            reset_time = datetime.strptime(reset_time,'%d/%m/%y %H:%M')
-            reset_time = mktime(reset_time.timetuple())
-        except:
-            return None
-            
-        if not cherrypy.request.params.get('maxWidth'):
-            maxWidth = '440'; # Default bootstrap 3 grid size
-        else:
-            maxWidth = cherrypy.request.params.get('maxWidth')
-        now=int(time())
-        start=int(reset_time)
-        RrdGraphString1=  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtoolrrdtool graph - --border 1 --lower-limit 0 --disable-rrdtool-tag --full-size-mode --width %s --right-axis 1:0 --right-axis-format %%1.1lf --height 400 --end %u --start %u "%(maxWidth, now,start)   
-        RrdGraphString1+=" DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE"%(db,db)
-        RrdGraphString1+=" CDEF:t=a,POP,TIME CDEF:tt=PREV\(t\) CDEF:i=t,tt,-"
-        #RrdGraphString1+=" CDEF:a1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start,start,reset_level)
-        #RrdGraphString1+=" CDEF:a2=t,%u,GT,tt,%u,LE,3000,0,IF,0,IF"%(start+864000*7,start+864000*7)
-        #RrdGraphString1+=" CDEF:s1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start, start, reset_level)
-        RrdGraphString1+=" CDEF:s1=t,POP,COUNT,1,EQ,%s,0,IF"%reset_level
-        RrdGraphString1+=" CDEF:s=a,b,*,360000,/,i,*" 
-        RrdGraphString1+=" CDEF:fs=s,UN,0,s,IF" 
-        RrdGraphString1+=" CDEF:c=s1,0,EQ,PREV,UN,0,PREV,IF,fs,-,s1,IF AREA:c#d6e4e9"
-        cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE)
-        cherrypy.response.headers['Pragma'] = 'no-cache'
-        cherrypy.response.headers['Content-Type'] = "image/png"
-        return cmd.communicate()[0]
+            if not polling:
+                return None
+            try:
+                reset_level=dbus.getItem('silo_reset_level')
+                reset_time=dbus.getItem('silo_reset_time')
+                reset_time = datetime.strptime(reset_time,'%d/%m/%y %H:%M')
+                reset_time = mktime(reset_time.timetuple())
+            except:
+                pass
 
+            if not cherrypy.request.params.get('maxWidth'):
+                maxWidth = '440'; # Default bootstrap 3 grid size
+            else:
+                maxWidth = cherrypy.request.params.get('maxWidth')
+            now=1380700483
+            start=int(1380700483-(86400*64))
+
+            reset_level = "4300"
+            RrdGraphString1=  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --border 1 --lower-limit 0 --disable-rrdtool-tag --full-size-mode --width %s --right-axis 1:0 --right-axis-format %%1.1lf --height 400 --end %u --start %u "%(maxWidth, now,start)
+            RrdGraphString1+=" DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE"%(db,db)
+            RrdGraphString1+=" CDEF:t=a,POP,TIME CDEF:tt=PREV\(t\) CDEF:i=t,tt,-"
+            #RrdGraphString1+=" CDEF:a1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start,start,reset_level)
+            #RrdGraphString1+=" CDEF:a2=t,%u,GT,tt,%u,LE,3000,0,IF,0,IF"%(start+864000*7,start+864000*7)
+            #RrdGraphString1+=" CDEF:s1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start, start, reset_level)
+            RrdGraphString1+=" CDEF:s1=t,POP,COUNT,1,EQ,%s,0,IF"%reset_level
+            RrdGraphString1+=" CDEF:s=a,b,*,360000,/,i,*"
+            RrdGraphString1+=" CDEF:fs=s,UN,0,s,IF"
+            RrdGraphString1+=" CDEF:c=s1,0,EQ,PREV,UN,0,PREV,IF,fs,-,s1,IF AREA:c#d6e4e9"
+            #return RrdGraphString1
+            cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE)
+            cherrypy.response.headers['Pragma'] = 'no-cache'
+            cherrypy.response.headers['Content-Type'] = "image/png"
+            return cmd.communicate()[0]
+        except Exception, e:
+                return str(e)
     @cherrypy.expose
     def consumption(self, **args):
         if not polling:
@@ -320,13 +322,13 @@ class PellMonWeb:
         if consumption_graph:
 
             #Build the command string to make a graph from the database
-            now=int(1380704083)/3600*3600
+            now=int(1380700483)/3600*3600
 
             if not cherrypy.request.params.get('maxWidth'):
                 maxWidth = '440'; # Default bootstrap 3 grid size
             else:
                 maxWidth = cherrypy.request.params.get('maxWidth')
-                
+
             align = now/3600*3600
             RrdGraphString = make_barchart_string(db, now, align, 3600, 24, '-', maxWidth, '24h consumption', 'kg/h')
             cmd = subprocess.Popen(RrdGraphString, shell=True, stdout=subprocess.PIPE)
@@ -463,15 +465,18 @@ class PellMonWeb:
                 timeName = timeNames[i]
                 print timeName
                 break;
+        #return str(polldata) + str(ds_names) + str(colorsDict)
+        #return str(autorefresh)+ str(timeSeconds)+ str(timeChoices)+str(timeNames)+str(timespan)+str(graph_lines)+str(lines)+str( timeName)
         return tmpl.render(username=cherrypy.session.get('_cp_username'), empty=False, autorefresh=autorefresh, timeSeconds = timeSeconds, timeChoices=timeChoices, timeNames=timeNames, timeChoice=timespan, graphlines=graph_lines, selectedlines = lines, timeName = timeName)
 
 def parameterReader(q):
     parameterlist=dbus.getdb()
     for item in parameterlist:
         try:
-            value = escape(dbus.getItem(item))
-        except:
-            value='error'
+            value = escape(str(dbus.getItem(item)))
+        except Exception,e:
+            value = str(e)
+            #value='error'
         q.put((item,value))
     q.put(('**end**','**end**'))
 
@@ -487,7 +492,7 @@ parser = ConfigParser.ConfigParser()
 config_file = 'pellmon.conf'
 
 def start():
-    return cherrypy.Application(PellMonWebb(),  '/', config=app_conf)
+    return cherrypy.Application(PellMonWeb(),  '/', config=app_conf)
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(prog='pellmonweb')
@@ -560,7 +565,7 @@ if __name__ == '__main__':
 
 
     config_file = args.CONFIG
-config_file='/home/motoz/PellMon/src/pellmon.conf'
+config_file='/home/motoz/PellMonGit/src/pellmon.conf'
 # Load the configuration file
 if not os.path.isfile(config_file):
     config_file = '/etc/pellmon.conf'
@@ -600,6 +605,7 @@ try:
     for key, value in rrd_ds_names:
         ds_names[key] = value
 except ConfigParser.NoSectionError:
+    raise
     ds_names = {}
 
 try:

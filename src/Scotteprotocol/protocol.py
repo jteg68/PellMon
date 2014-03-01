@@ -78,13 +78,12 @@ class Protocol(threading.Thread):
         return self.dataBase
 
     def getItem(self, param):
-        dataparam=self.dataBase[param]
         import random
         try:
-
-            return random.randint(dataparam.min, dataparam.max)
+            dataparam=self.dataBase[param]
+            return str(random.randint(dataparam.min, dataparam.max))
         except:
-            return random.randint(0, 999)
+            return str(random.randint(0, 999))
 
         if self.dummyDevice:
             return '1234'
@@ -166,7 +165,7 @@ class Protocol(threading.Thread):
                     response = responseQueue.get()
                     if response == addCheckSum('OK'):
                         logger.info('Parameter %s = %s'%(param,s))
-                        response = 'OK'                        
+                        response = 'OK'
                     return response
                 else:
                     return "Expected value "+str(dataparam.min)+".."+str(dataparam.max)
