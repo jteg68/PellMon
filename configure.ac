@@ -19,6 +19,23 @@ AC_ARG_WITH([user_web],
 
 AC_SUBST([user_web], [$with_user_web])
 
-AC_CONFIG_FILES([Makefile initscript/Makefile data/Makefile src/Makefile src/srv/Makefile src/web/Makefile])
+AC_CONFIG_FILES([ \
+Makefile \
+initscript/Makefile \
+data/Makefile \
+src/Makefile \
+src/Pellmonsrv/Makefile \
+src/Pellmonsrv/yapsy/Makefile \
+src/Pellmonsrv/plugins/Makefile \
+src/Pellmonsrv/plugins/testplugin/Makefile \
+src/Pellmonsrv/plugins/scottecom/Makefile \
+src/Pellmonsrv/plugins/raspberrygpio/Makefile \
+src/Pellmonsrv/plugins/customalarms/Makefile \
+src/Pellmonsrv/plugins/calculate/Makefile \
+src/Pellmonsrv/plugins/owfs/Makefile \
+src/Pellmonsrv/plugins/silolevel/Makefile \
+src/Pellmonsrv/plugins/pelletcalc/Makefile \
+src/Scotteprotocol/Makefile \
+src/Pellmonweb/Makefile ])
 
 AC_OUTPUT

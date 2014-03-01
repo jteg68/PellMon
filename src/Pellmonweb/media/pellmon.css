@@ -1,0 +1,15 @@
+/**
+ * Always show the scrollbar
+ * to stop the layout form shifting
+ * left/right when the page isn't high enough
+ */
+html {
+    overflow-y: scroll;
+}
+
+.selected {
+text-decoration: none;
+border-top: 3px solid; 
+}
+
+a:link {text-decoration:none; outline: none;}

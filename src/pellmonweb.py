@@ -28,17 +28,20 @@ from cherrypy.lib import caching
 #from gi.repository import Gio, GLib, GObject
 import simplejson
 import threading, Queue
-from pweb import *
-from time import time
+
+from srv import Protocol, getDbWithTags, dataDescriptions
+
+from Pellmonweb import *
+from time import time, mktime
 import threading
 import sys
-from pweb import __file__ as webpath
+from Pellmonweb import __file__ as webpath
 import argparse
 import pwd
 import grp
-from tempfile import NamedTemporaryFile
-from srv import Protocol, getDbWithTags, dataDescriptions
-
+import subprocess
+from datetime import datetime
+from cgi import escape
 
 class DbusNotConnected(Exception):
     pass
@@ -121,27 +124,18 @@ class Dbus_handler:
         else:
             return l
 
-class PellMonWebb:
+    def getMenutags(self):
+        if self.notify:
+            return self.notify.getMenutags()
+        else:
+            raise DbusNotConnected("server not running")
+
+class PellMonWeb:
     def __init__(self):
         self.logview = LogViewer(logfile)
         self.auth = AuthController(credentials)
         self.consumptionview = Consumption(polling, db)
 
-
-    @cherrypy.expose
-    def form1(self, **args):
-        # The checkboxes are submitted with 'post'
-        if cherrypy.request.method == "POST":
-            # put the selection in session
-            for key,val in polldata:
-                # is this dataset checked?
-                if args.has_key(val):
-                    # if so, set it in the session
-                    cherrypy.session[val] = 'yes'
-                else:
-                    cherrypy.session[val] = 'no'
-        # redirect back after setting selection in session
-        raise cherrypy.HTTPRedirect('/')
 
     @cherrypy.expose
     def autorefresh(self, **args):
@@ -154,81 +148,177 @@ class PellMonWebb:
         return simplejson.dumps(dict(enabled=cherrypy.session['autorefresh']))
 
     @cherrypy.expose
-    def image(self, **args):
+    def graphsession(self, **args):
+        if cherrypy.request.method == "POST":
+            try:
+                if args.has_key('width'):
+                    cherrypy.session['width'] = int(args['width'])
+                if args.has_key('height'):
+                    cherrypy.session['height'] = int(args['height'])
+                if args.has_key('timespan'):
+                    cherrypy.session['timespan'] = int(args['timespan'])
+                if args.has_key('timeoffset'):
+                    cherrypy.session['timeoffset'] = int(args['timeoffset'])
+                if args.has_key('lines'):
+                    lines = args['lines'].split(',')
+                    cherrypy.session['lines'] = lines
+            except:
+                pass
+            return 'ok'
+
+    @cherrypy.expose
+    def graph(self, **args):
         if not polling:
             return None
-        try:
-            timeChoice = args['timeChoice']
-            timeChoice = timeChoices.index(timeChoice)
-            cherrypy.session['timeChoice'] = timeChoice
-        except:
-            pass
+        if len(colorsDict) == 0:
+            return None
 
+        # Set x axis time span with ?timespan=xx 
         try:
-            timeChoice = cherrypy.session['timeChoice']
-            seconds=timeSeconds[timeChoice]
-        except:
-            seconds=timeSeconds[0]
-
-        # Set time offset with ?time=xx
-        try:
-            time = int(args['time'])
-            # And save it in the session
-            cherrypy.session['time'] = str(time)
+            timespan = int(args['timespan'])
         except:
             try:
-                time = int(cherrypy.session['time'])
+                timespan = int(cherrypy.session['timespan'])
+            except:
+                timespan = 3600
+
+        # Offset x-axis with ?timeoffset=xx 
+        try:
+            time = int(args['timeoffset'])
+        except:
+            try:
+                time = int(cherrypy.session['timeoffset'])
             except:
                 time = 0
 
-
+        # Set graph width with ?width=xx 
         try:
-            direction = args['direction']
-            if direction == 'left':
-                time=time+seconds
-            elif direction == 'right':
-                time=time-seconds
-                if time<0:
-                    time=0
-            cherrypy.session['time']=str(time)
+            graphWidth = int(args['width'])
+        except:
+            try:
+                graphWidth = int(cherrypy.session['width'])
+            except:
+                graphWidth = 440 # Default bootstrap 3 grid size
+        if graphWidth > 5000:
+            graphWidth = 5000
+
+        # Set graph height with ?height=xx 
+        try:
+            graphHeight = int(args['height'])
+        except:
+            try:
+                graphHeight = int(cherrypy.session['height'])
+            except:
+                graphHeight = 400
+        if graphHeight > 2000:
+            graphHeight = 2000
+
+        # Set plotlines with ?lines=line1,line2,line3
+        try:
+            lines = args['lines'].split(',')
+        except:
+            try:
+                lines = cherrypy.session['lines']
+            except:
+                lines = []
+        if graphHeight > 2000:
+            graphHeight = 2000
+
+        graphTimeStart=str(timespan + time)
+        graphTimeEnd=str(time)
+
+        # Hide legends with ?legends=no
+        legends = ''
+        try:
+            if args['legends'] == 'no':
+                legends = '--no-legend'
         except:
             pass
 
-        try:
-            graphWidth = args.get('maxWidth')
-            test = int(graphWidth) # should be int
-        except:
-            graphWidth = '440' # Default bootstrap 3 grid size
-
-        graphTimeStart=str(seconds + time)
-        graphTimeEnd=str(time)
-
-        #Build the command string to make a graph from the database
-        fd=NamedTemporaryFile(suffix='.png')
-        graph_file=fd.name
-
+        # scale the right y-axis according to the first scaled item if found, otherwise unscaled
         if int(graphWidth)>500:
-            rightaxis = '--right-axis 1:0'
+            rightaxis = '--right-axis'
+            scalestr = ' 1:0'
+            for line in graph_lines:
+                if line['name'] in lines and 'scale' in line:
+                    scale = line['scale'].split(':')
+                    try:
+                        gain = float(scale[1])
+                        offset = -float(scale[0])
+                    except:
+                        gain = 1
+                        offset = 0
+                    scalestr = " %s:%s"%(str(gain),str(offset))
+                    break
+            rightaxis += scalestr
         else:
             rightaxis = ''
-        RrdGraphString1 = "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+ graph_file + ' --disable-rrdtool-tag' +\
-            " --lower-limit 0 %s --full-size-mode --width "%rightaxis + graphWidth + \
-            " --height 400 --end 1380704083-" + graphTimeEnd + "s --start 1380704083-" + graphTimeStart + "s " + \
-            "DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
-        for key,value in polldata:
-            if cherrypy.session.get(value)!='no' and colorsDict.has_key(key):
-                RrdGraphString1=RrdGraphString1+"DEF:%s="%key+db+":%s:AVERAGE LINE1:%s%s:\"%s\" "% (value, key, colorsDict[key], value)
-        RrdGraphString1=RrdGraphString1+">>/dev/null"
-        os.system(RrdGraphString1)
+
+        #Build the command string to make a graph from the database
+        RrdGraphString1 =  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --disable-rrdtool-tag --border 1 "+ legends
+        RrdGraphString1 += " --lower-limit 0 %s --full-size-mode --width %u"%(rightaxis, graphWidth) + " --right-axis-format %1.0lf "
+        RrdGraphString1 += " --height %s --end now-"%graphHeight + graphTimeEnd + "s --start now-" + graphTimeStart + "s "
+        RrdGraphString1 += "DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
+
+        for line in graph_lines:
+            if line['name'] in lines:
+                RrdGraphString1+="DEF:%s="%line['name']+db+":%s:AVERAGE "%line['ds_name']
+                if 'scale' in line:
+                    scale = line['scale'].split(':')
+                    try:
+                        gain = float(scale[1])
+                        offset = float(scale[0])
+                    except:
+                        gain = 1
+                        offset = 0
+                    RrdGraphString1+="CDEF:%s_s=%s,%d,+,%d,/ "%(line['name'], line['name'], offset, gain)    
+                    RrdGraphString1+="LINE1:%s_s%s:\"%s\" "% (line['name'], line['color'], line['name'])
+                else:
+                    RrdGraphString1+="LINE1:%s%s:\"%s\" "% (line['name'], line['color'], line['name'])
+        cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE)
         cherrypy.response.headers['Pragma'] = 'no-cache'
-        return serve_fileobj(fd, content_type='image/png')
-        #return serve_file('/home/motoz/PellMon/graph.png', content_type='image/png')
+        cherrypy.response.headers['Content-Type'] = "image/png"
+        return cmd.communicate()[0]
+
+    @cherrypy.expose
+    def silolevel(self, **args):
+        if not polling:
+             return None
+        try:
+            reset_level=dbus.getItem('silo_reset_level')
+            reset_time=dbus.getItem('silo_reset_time')
+            reset_time = datetime.strptime(reset_time,'%d/%m/%y %H:%M')
+            reset_time = mktime(reset_time.timetuple())
+        except:
+            return None
+            
+        if not cherrypy.request.params.get('maxWidth'):
+            maxWidth = '440'; # Default bootstrap 3 grid size
+        else:
+            maxWidth = cherrypy.request.params.get('maxWidth')
+        now=int(time())
+        start=int(reset_time)
+        RrdGraphString1=  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtoolrrdtool graph - --border 1 --lower-limit 0 --disable-rrdtool-tag --full-size-mode --width %s --right-axis 1:0 --right-axis-format %%1.1lf --height 400 --end %u --start %u "%(maxWidth, now,start)   
+        RrdGraphString1+=" DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE"%(db,db)
+        RrdGraphString1+=" CDEF:t=a,POP,TIME CDEF:tt=PREV\(t\) CDEF:i=t,tt,-"
+        #RrdGraphString1+=" CDEF:a1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start,start,reset_level)
+        #RrdGraphString1+=" CDEF:a2=t,%u,GT,tt,%u,LE,3000,0,IF,0,IF"%(start+864000*7,start+864000*7)
+        #RrdGraphString1+=" CDEF:s1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start, start, reset_level)
+        RrdGraphString1+=" CDEF:s1=t,POP,COUNT,1,EQ,%s,0,IF"%reset_level
+        RrdGraphString1+=" CDEF:s=a,b,*,360000,/,i,*" 
+        RrdGraphString1+=" CDEF:fs=s,UN,0,s,IF" 
+        RrdGraphString1+=" CDEF:c=s1,0,EQ,PREV,UN,0,PREV,IF,fs,-,s1,IF AREA:c#d6e4e9"
+        cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE)
+        cherrypy.response.headers['Pragma'] = 'no-cache'
+        cherrypy.response.headers['Content-Type'] = "image/png"
+        return cmd.communicate()[0]
 
     @cherrypy.expose
     def consumption(self, **args):
         if not polling:
              return None
         if consumption_graph:
+
             #Build the command string to make a graph from the database
             now=int(1380704083)/3600*3600
 
@@ -236,25 +326,13 @@ class PellMonWebb:
                 maxWidth = '440'; # Default bootstrap 3 grid size
             else:
                 maxWidth = cherrypy.request.params.get('maxWidth')
-
-            # The width passed to rrdtool does not include the sidebars
-            graphWidth = str(int(maxWidth))
-
-            fd=NamedTemporaryFile(suffix='.png')
-            consumption_file=fd.name
-
-            RrdGraphString1="LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph "+consumption_file+" --disable-rrdtool-tag --full-size-mode --width "+graphWidth+" --right-axis 1:0 --right-axis-format %%1.1lf --height 400 --end %u --start %u-86400s "%(now,now)
-            RrdGraphString1=RrdGraphString1+"DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE "%(db,db)
-            for h in range(0,24):
-                start=(now-h*3600-3600)
-                end=(now-h*3600)
-                RrdGraphString1=RrdGraphString1+" CDEF:aa%u=TIME,%u,LE,TIME,%u,GT,a,0,IF,0,IF,b,*,360000,/ VDEF:va%u=aa%u,TOTAL CDEF:ca%u=a,POP,va%u CDEF:aaa%u=TIME,%u,LE,TIME,%u,GT,ca%u,0,IF,0,IF AREA:aaa%u%s"%(h,end,start,h,h,h,h,h,end,start,h,h,("#61c4f6","#4891b6")[h%2])
-
-            RrdGraphString1=RrdGraphString1+" CDEF:cons=a,b,*,360,/,1000,/ VDEF:tot=cons,TOTAL CDEF:avg=a,POP,tot,24,/ VDEF:aver=avg,MAXIMUM GPRINT:tot:\"24h consumption %.1lf kg\" GPRINT:aver:\"average %.2lf kg/h\" "
-            RrdGraphString1=RrdGraphString1+" >>/dev/null"
-            os.system(RrdGraphString1)
+                
+            align = now/3600*3600
+            RrdGraphString = make_barchart_string(db, now, align, 3600, 24, '-', maxWidth, '24h consumption', 'kg/h')
+            cmd = subprocess.Popen(RrdGraphString, shell=True, stdout=subprocess.PIPE)
             cherrypy.response.headers['Pragma'] = 'no-cache'
-            return serve_fileobj(fd, content_type='image/png')
+            cherrypy.response.headers['Content-Type'] = "image/png"
+            return cmd.communicate()[0]
 
     @cherrypy.expose
     @require() #requires valid login
@@ -313,9 +391,21 @@ class PellMonWebb:
                     paramlist.append(item)
                 if item['type'] == 'W':
                     commandlist.append(item)
-
+                try:
+                    a = item['longname']
+                except:
+                    item['longname'] = item['name']
+                try:
+                    a = item['unit']
+                except:
+                    item['unit'] = ''
+                try:
+                    a = item['description']
+                except:
+                    item['description'] = ''
             tmpl = lookup.get_template("parameters.html")
-            return tmpl.render(username=cherrypy.session.get('_cp_username'), data = datalist, params=paramlist, commands=commandlist, values=values, level=level, heading=t1)
+            tags = dbus.getMenutags()
+            return tmpl.render(username=cherrypy.session.get('_cp_username'), data = datalist, params=paramlist, commands=commandlist, values=values, level=level, heading=t1, tags=tags)
         except DbusNotConnected:
             return "Pellmonsrv not running?"
 
@@ -349,19 +439,6 @@ class PellMonWebb:
         raise cherrypy.HTTPRedirect(cherrypy.request.headers['Referer'])
 
     @cherrypy.expose
-    def graphconf(self):
-        checkboxes=[]
-        empty=True
-        for key, val in polldata:
-            if colorsDict.has_key(key):
-                if cherrypy.session.get(val) in ['yes', None]:
-                    checkboxes.append((val,True))
-                else:
-                    checkboxes.append((val,''))
-        tmpl = lookup.get_template("graphconf.html")
-        return tmpl.render(checkboxes=checkboxes, empty=False)
-
-    @cherrypy.expose
     def index(self, **args):
         autorefresh = cherrypy.session.get('autorefresh')=='yes'
         empty=True
@@ -370,13 +447,29 @@ class PellMonWebb:
                 if cherrypy.session.get(val)=='yes':
                     empty=False
         tmpl = lookup.get_template("index.html")
-        return tmpl.render(username=cherrypy.session.get('_cp_username'), empty=False, autorefresh=autorefresh, timeChoices=timeChoices, timeNames=timeNames, timeChoice=cherrypy.session.get('timeChoice'))
+        try:
+            lines = cherrypy.session['lines']
+        except:
+            lines = ','.join([line['name'] for line in graph_lines])
+            cherrypy.session['lines'] = lines
+        try:
+            timespan = cherrypy.session['timespan']
+        except:
+            timespan = 3600
+            cherrypy.session['timespan'] = timespan
+        timeName = 'sdfas'
+        for i in range(len(timeNames)):
+            if timeSeconds[i] == timespan:
+                timeName = timeNames[i]
+                print timeName
+                break;
+        return tmpl.render(username=cherrypy.session.get('_cp_username'), empty=False, autorefresh=autorefresh, timeSeconds = timeSeconds, timeChoices=timeChoices, timeNames=timeNames, timeChoice=timespan, graphlines=graph_lines, selectedlines = lines, timeName = timeName)
 
 def parameterReader(q):
     parameterlist=dbus.getdb()
     for item in parameterlist:
         try:
-            value = dbus.getItem(item)
+            value = escape(dbus.getItem(item))
         except:
             value='error'
         q.put((item,value))
@@ -414,6 +507,8 @@ if __name__ == '__main__':
 
     engine = cherrypy.engine
 
+    config_file = args.CONFIG
+
     # Only daemonize if asked to.
 #    if daemonize:
     if args.DAEMONIZE:
@@ -425,9 +520,44 @@ if __name__ == '__main__':
         plugins.PIDFile(engine, pidfile).subscribe()
 
     if args.USER:
+        # Load the configuration file
+        if not os.path.isfile(config_file):
+            config_file = '/etc/pellmon.conf'
+        if not os.path.isfile(config_file):
+            config_file = '/usr/local/etc/pellmon.conf'
+        if not os.path.isfile(config_file):
+            print "config file not found"
+            sys.exit(1)
+        parser.read(config_file)
+
+        try:
+            accesslog = parser.get('weblog', 'accesslog')
+            logdir = os.path.dirname(accesslog)
+            if not os.path.isdir(logdir):
+                os.mkdir(logdir)
+            uid = pwd.getpwnam(args.USER).pw_uid
+            gid = grp.getgrnam(args.GROUP).gr_gid
+            os.chown(logdir, uid, gid)
+            if os.path.isfile(accesslog):
+                os.chown(accesslog, uid, gid)
+        except:
+            pass
+        try:
+            errorlog = parser.get('weblog', 'errorlog')
+            logdir = os.path.dirname(errorlog)
+            if not os.path.isdir(logdir):
+                os.mkdir(logdir)
+            uid = pwd.getpwnam(args.USER).pw_uid
+            gid = grp.getgrnam(args.GROUP).gr_gid
+            os.chown(logdir, uid, gid)
+            if os.path.isfile(errorlog):
+                os.chown(errorlog, uid, gid)
+        except:
+            pass
         uid = pwd.getpwnam(args.USER).pw_uid
         gid = grp.getgrnam(args.GROUP).gr_gid
         plugins.DropPrivileges(engine, uid=uid, gid=gid, umask=033).subscribe()
+
 
     config_file = args.CONFIG
 config_file='/home/motoz/PellMon/src/pellmon.conf'
@@ -452,13 +582,42 @@ except ConfigParser.NoOptionError:
     db = ''
 
 # the colors to use when drawing the graph
-colors = parser.items('graphcolors')
-colorsDict = {}
-for key, value in colors:
-    colorsDict[key] = value
+try:
+    colors = parser.items('graphcolors')
+    colorsDict = {}
+    for key, value in colors:
+        colorsDict[key] = value
+except ConfigParser.NoSectionError:
+    colorsDict = {}
 
 # Get the names of the polled data
 polldata = parser.items("pollvalues")
+
+try:
+    # Get the names of the polled data
+    rrd_ds_names = parser.items("rrd_ds_names")
+    ds_names = {}
+    for key, value in rrd_ds_names:
+        ds_names[key] = value
+except ConfigParser.NoSectionError:
+    ds_names = {}
+
+try:
+    # Get the optional scales
+    scales = parser.items("scaling")
+    scale_data = {}
+    for key, value in scales:
+        scale_data[key] = value
+except ConfigParser.NoSectionError:
+    scale_data = {}
+
+graph_lines=[]
+for key,value in polldata:
+    if key in colorsDict and key in ds_names:
+        graph_lines.append({'name':value, 'color':colorsDict[key], 'ds_name':ds_names[key]})
+        if key in scale_data:
+            graph_lines[-1]['scale'] = scale_data[key]
+
 credentials = parser.items('authentication')
 logfile = parser.get('conf', 'logfile')
 
@@ -500,11 +659,19 @@ cherrypy.config.update(global_conf)
 
 if __name__=="__main__":
 
-    cherrypy.tree.mount(PellMonWebb(), '/', config=app_conf)
+    cherrypy.tree.mount(PellMonWeb(), '/', config=app_conf)
     if hasattr(engine, "signal_handler"):
         engine.signal_handler.subscribe()
     if hasattr(engine, "console_control_handler"):
         engine.console_control_handler.subscribe()
+    try:
+        cherrypy.config.update({'log.access_file':accesslog})
+    except:
+        pass
+    try:
+        cherrypy.config.update({'log.error_file':errorlog})
+    except:
+        pass
 
     # Always start the engine; this will start all other services
     try:
@@ -515,7 +682,7 @@ if __name__=="__main__":
     else:
         engine.block()
 
-#    cherrypy.quickstart(PellMonWebb(), config=app_conf)
+#    cherrypy.quickstart(PellMonWeb(), config=app_conf)
 
 else:
     # The dbus main_loop thread can't be started before double fork to daemon, the
@@ -524,3 +691,4 @@ else:
     dbus = Dbus_handler('SYSTEM')
     #application = cherrypy.tree.mount(PellMonWebb(), '/', config=app_conf)
     pass
+

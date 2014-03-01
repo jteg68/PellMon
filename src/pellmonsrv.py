@@ -30,10 +30,46 @@ import time
 from smtplib import SMTP as smtp
 from email.mime.text import MIMEText as mimetext
 import argparse
-import pwd
-import grp
+import pwd, grp
+from Pellmonsrv.yapsy.PluginManager import PluginManager
+from Pellmonsrv.plugin_categories import protocols
+from Pellmonsrv import Daemon
+import subprocess
 
-from srv import Protocol, Daemon, getDbWithTags, dataDescriptions
+class Database(object):
+    def __init__(self):
+    
+        class getset:
+            def __init__(self, item, obj):
+                self.item = item
+                self.obj = obj
+            def getItem(self):
+                return self.obj.getItem(self.item)
+            def setItem(self, value):
+                return self.obj.setItem(self.item, value)
+
+        self.items={}
+        self.protocols=[]
+        # Initialize and activate all plugins of 'Protocols' category
+        global manager
+        manager = PluginManager(categories_filter={ "Protocols": protocols})
+        manager.setPluginPlaces([conf.plugin_dir])
+        manager.collectPlugins()
+        for plugin in manager.getPluginsOfCategory('Protocols'):
+            if plugin.name in conf.enabled_plugins:
+                try:
+                    plugin.plugin_object.activate(conf.plugin_conf[plugin.name], globals())
+                    self.protocols.append(plugin)
+                    logger.info("activated plugin %s"%plugin.name)
+                    for item in plugin.plugin_object.getDataBase():
+                        self.items[item] = getset(item, plugin.plugin_object)
+                except Exception as e:
+                    print str(e)
+                    logger.info('Plugin %s init failed'%plugin.name)
+    def terminate(self):
+        for p in self.protocols:
+            p.plugin_object.deactivate()
+            logger.info('deactivated %s'%p.name)
 
 class MyDBUSService(dbus.service.Object):
     """Publish an interface over the DBUS system bus"""
@@ -48,29 +84,29 @@ class MyDBUSService(dbus.service.Object):
     @dbus.service.method('org.pellmon.int')
     def GetItem(self, param):
         """Get the value for a data/parameter item"""
-        return protocol.getItem(param)
+        if param == 'pellmonsrv_version':
+            return '0.0.0'
+        else:
+            return conf.database.items[param].getItem()
 
     @dbus.service.method('org.pellmon.int')
     def SetItem(self, param, value):
         """Get the value for a parameter/command item"""
-        return protocol.setItem(param, value)
+        return conf.database.items[param].setItem(value)
 
     @dbus.service.method('org.pellmon.int')
     def GetDB(self):
         """Get list of all data/parameter/command items"""
-        l=[]
-        dataBase = protocol.getDataBase()
-        for item in dataBase:
-            l.append(item)
-        l.sort()
-        if l==[]:
-            return ['unsupported_version']
-        else:
-            return l
+        db=[]
+        for plugin in conf.database.protocols:
+            db = db + plugin.plugin_object.getDataBase()
+        db.sort()
+        return db
 
     @dbus.service.method(dbus_interface='org.pellmon.int', in_signature='as', out_signature='aa{sv}')
     def GetFullDB(self, tags):
         """Get list of all data/parameter/command items"""
+<<<<<<< HEAD
         l=[]
         allparameters = protocol.getDataBase()
         filteredParams = getDbWithTags(tags)
@@ -113,23 +149,45 @@ class MyDBUSService(dbus.service.Object):
                 params.append(param)
         params.sort()
         return params
+=======
+        db=[]
+        for plugin in conf.database.protocols:
+            db = db + plugin.plugin_object.GetFullDB(tags)
+        return db
+
+    @dbus.service.method('org.pellmon.int')
+    def getMenutags(self):
+        """Get list of all tags that make up the menu"""
+        menutags=[]
+        for plugin in conf.database.protocols:
+            menutags = menutags + plugin.plugin_object.getMenutags()
+        return menutags
+>>>>>>> develop
 
 def pollThread():
     """Poll data defined in conf.pollData and update the RRD database with the responses"""
     logger.debug('handlerTread started by signal handler')
-    items=[]
+    itemlist=[]
     global conf
     if not conf.polling:
         return
     try:
         for data in conf.pollData:
+<<<<<<< HEAD
             # 'special cases' handled here, name starting with underscore are not polled from the protocol
             if data[0]=='_':
                 if data=='_logtick':
                     items.append(str(conf.tickcounter))
+=======
+            # 'special cases' handled here, name starting with underscore are not polled from the protocol 
+            if data['name'][0] == '_':
+                if data['name'] == '_logtick':
+                    itemlist.append(str(conf.tickcounter))
+>>>>>>> develop
                 else:
-                    items.append('U')
+                    itemlist.append('U')
             else:
+<<<<<<< HEAD
                 items.append(protocol.getItem(data))
         # Log changes to 'mode' and 'alarm' here, their data frame is already read here anyway
         for param in ('mode', 'alarm'):
@@ -147,15 +205,54 @@ def pollThread():
             conf.dbvalues[param] = value
         s=':'.join(items)
         os.system("LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool update "+conf.db+" N:"+s)
+=======
+                value = conf.database.items[data['name']].getItem()
+                # when a counter is updated with a smaller value than the previous one, rrd thinks the counter has wrapped
+                # either at 32 or 64 bits, which leads to a huge spike in the counter if it really didn't
+                # To prevent this we write an undefined value before an update that is less than the previous
+                if 'COUNTER' in data['ds_type']:
+                    try:
+                        if int(value) < int(conf.lastupdate[data['name']]):
+                            value = 'U'
+                    except:
+                        pass
+                itemlist.append(value)
+                conf.lastupdate[data['name']] = value
+        s=':'.join(itemlist)
+        os.system("/usr/bin/rrdtool update "+conf.db+" %u:"%(int(time.time())/10*10)+s)
+>>>>>>> develop
     except IOError as e:
         logger.debug('IOError: '+e.strerror)
         logger.debug('   Trying Z01...')
         try:
             # I have no idea why, but every now and then the pelletburner stops answering, and this somehow causes it to start responding normally again
-            protocol.getItem('oxygen_regulation')
+            conf.database.items['oxygen_regulation'].getItem()
         except IOError as e:
             logger.info('Getitem failed two times and reading Z01 also failed '+e.strerror)
 
+<<<<<<< HEAD
+=======
+def handle_settings_changed(item, oldvalue, newvalue, itemtype):
+    """ Called by the protocols when they detect that a setting has changed """
+    if itemtype == 'parameter':
+        logline = """Parameter '%s' changed from '%s' to '%s'"""%(item, oldvalue, newvalue)
+        logger.info(logline)
+        conf.tickcounter=int(time.time())
+        if conf.email and 'parameter' in conf.emailconditions:
+            sendmail(logline)
+    if itemtype == 'mode':
+        logline = """'%s' changed from '%s' to '%s'"""%(item, oldvalue, newvalue)
+        logger.info(logline)
+        conf.tickcounter=int(time.time())
+        if conf.email and 'mode' in conf.emailconditions:
+            sendmail(logline)
+    if itemtype == 'alarm':
+        logline = """'%s' state went from '%s' to '%s'"""%(item, oldvalue, newvalue)
+        logger.info(logline)
+        conf.tickcounter=int(time.time())
+        if conf.email and 'alarm' in conf.emailconditions:
+            sendmail(logline)
+>>>>>>> develop
 
 def periodic_signal_handler(signum, frame):
     """Periodic signal handler. Start pollThread to do the work"""
@@ -199,8 +296,15 @@ def db_copy_thread():
 
 def sigterm_handler(signum, frame):
     """Handles SIGTERM, waits for the database copy on shutdown if it is in a ramdisk"""
+<<<<<<< HEAD
     if conf.polling:
         if conf.nvdb != conf.db:
+=======
+    logger.info('stop')
+    conf.database.terminate()
+    if conf.polling: 
+        if conf.nvdb != conf.db:   
+>>>>>>> develop
             copy_db('store')
         if not copy_in_progress:
             logger.info('exiting')
@@ -208,6 +312,7 @@ def sigterm_handler(signum, frame):
     else:
         logger.info('exiting')
         sys.exit(0)
+<<<<<<< HEAD
 
 def settings_pollthread(settings):
     """Loop through all items tagged as 'Settings' and write a message to the log when their values have changed"""
@@ -254,6 +359,9 @@ def settings_pollthread(settings):
     ht = threading.Timer(30, settings_pollthread, args=(settings,))
     ht.setDaemon(True)
     ht.start()
+=======
+    
+>>>>>>> develop
 
 def sendmail(msg):
     ht = threading.Timer(2, sendmail_thread, args=(msg,))
@@ -285,21 +393,34 @@ class MyDaemon(Daemon):
 
         logger.info('starting pelletMonitor')
 
+<<<<<<< HEAD
         # Initialize protocol and setup the database according to version_string
         global protocol
         global conf
+=======
+        # Load all plugins of 'protocol' category.
+        conf.database = Database()
+
+>>>>>>> develop
         try:
-            protocol = Protocol(conf.serial_device, conf.version_string)
+            if conf.USER:
+                drop_privileges(conf.USER, conf.GROUP)
         except:
+<<<<<<< HEAD
             conf.polling=False
             logger.info('protocol setup failed')
 
+=======
+            pass
+            
+>>>>>>> develop
         # DBUS needs the gobject main loop, this way it seems to work...
         gobject.threads_init()
         dbus.mainloop.glib.threads_init()
         DBUSMAINLOOP = gobject.MainLoop()
         DBusGMainLoop(set_as_default=True)
         myservice = MyDBUSService(conf.dbus)
+<<<<<<< HEAD
 
         # Create SIGTERM signal handler
         signal.signal(signal.SIGTERM, sigterm_handler)
@@ -310,6 +431,9 @@ class MyDaemon(Daemon):
         signal.setitimer(signal.ITIMER_REAL, 2, conf.poll_interval)
         logger.debug('started timer')
 
+=======
+
+>>>>>>> develop
         # Create RRD database if does not exist
         if conf.polling:
             if not os.path.exists(conf.nvdb):
@@ -324,11 +448,30 @@ class MyDaemon(Daemon):
                 ht.setDaemon(True)
                 ht.start()
 
+<<<<<<< HEAD
         # Create and start settings_pollthread to log settings changed locally
         settings = getDbWithTags(('Settings',))
         ht = threading.Timer(4, settings_pollthread, args=(settings,))
         ht.setDaemon(True)
         ht.start()
+=======
+            # Get the latest values for all data sources in the database
+            s = subprocess.check_output(['rrdtool', 'lastupdate', conf.db])
+            l=s.split('\n')
+            items = l[0].split()
+            values = l[2].split()
+            values = values[1::]
+            conf.lastupdate = dict(zip(items, values))
+
+        # Create SIGTERM signal handler
+        signal.signal(signal.SIGTERM, sigterm_handler)
+
+        # Create poll_interval periodic signal handler
+        signal.signal(signal.SIGALRM, periodic_signal_handler)
+        logger.debug('created signalhandler')
+        signal.setitimer(signal.ITIMER_REAL, 2, conf.poll_interval)
+        logger.debug('started timer')
+>>>>>>> develop
 
         # Execute glib main loop to serve DBUS connections
         DBUSMAINLOOP.run()
@@ -341,25 +484,50 @@ class config:
     def __init__(self, filename):
         # Load the configuration file
         parser = ConfigParser.ConfigParser()
+        parser.optionxform=str
         parser.read(filename)
 
+<<<<<<< HEAD
         # These are read from the serial bus every 'pollinterval' second
+=======
+        # Get the enabled plugins list
+        plugins = parser.items("enabled_plugins")
+        self.enabled_plugins = []
+        self.plugin_conf={}
+        for key, plugin_name in plugins:
+            self.enabled_plugins.append(plugin_name)
+            self.plugin_conf[plugin_name] = {}
+            try:
+                plugin_conf = parser.items('plugin_%s'%plugin_name)
+                for key, value in plugin_conf:
+                    self.plugin_conf[plugin_name][key] = value
+            except:
+                # No plugin config found
+                pass
+
+        # Data to write to the rrd
+>>>>>>> develop
         polldata = parser.items("pollvalues")
 
-        # Optional rrd data source definitions, default is DS:%s:GAUGE:%u:U:U
-        rrd_datasources = parser.items("rrd_datasources")
+        # rrd database datasource names
+        rrd_ds_names = parser.items("rrd_ds_names")
 
+        # Optional rrd data type definitions
+        rrd_ds_types = parser.items("rrd_ds_types")
+
+        # Make a list of data to poll, in the order they appear in the rrd database
         self.pollData = []
-        self.dataSources = {}
-        dataSourceConf = {}
-        for key, value in rrd_datasources:
-            dataSourceConf[key] = value
+        ds_types = {}
+        pollItems = {}
         for key, value in polldata:
-            self.pollData.append(value)
-            if dataSourceConf.has_key(key):
-                self.dataSources[value] = dataSourceConf[key]
-            else:
-                self.dataSources[value] = "DS:%s:GAUGE:%u:U:U"
+            pollItems[key] = value
+        for key, value in rrd_ds_names:
+            ds_types[key] = "DS:%s:GAUGE:%u:U:U"
+        for key, value in rrd_ds_types:
+            ds_types[key] = value
+        for key, value in rrd_ds_names:
+            self.pollData.append({'name':pollItems[key], 'ds_name':value, 'ds_type':ds_types[key]})
+
         # The RRD database
         try:
             self.polling=True
@@ -377,6 +545,7 @@ class config:
             self.db_store_interval = int(parser.get('conf', 'db_store_interval'))
         except ConfigParser.NoOptionError:
             self.db_store_interval = 3600
+<<<<<<< HEAD
         try:
             self.serial_device = parser.get('conf', 'serialport')
         except ConfigParser.NoOptionError:
@@ -401,8 +570,11 @@ class config:
             self.RrdCreateString += "RRA:AVERAGE:0,999:10:20000 "
             self.RrdCreateString += "RRA:AVERAGE:0,999:100:20000 "
             self.RrdCreateString += "RRA:AVERAGE:0,999:1000:20000"
+=======
+>>>>>>> develop
 
         # create logger
+        global logger
         logger = logging.getLogger('pellMon')
         loglevel = parser.get('conf', 'loglevel')
         loglevels = {'info':logging.INFO, 'debug':logging.DEBUG}
@@ -418,6 +590,25 @@ class config:
         # add the handlers to the logger
         logger.addHandler(fh)
 
+<<<<<<< HEAD
+=======
+        try: 
+            self.poll_interval = int(parser.get('conf', 'pollinterval'))
+        except ConfigParser.NoOptionError:
+            logger.info('Invalid poll_interval setting, using 10s')
+            self.poll_interval = 10
+
+        if self.polling:
+            # Build a command string to create the rrd database
+            self.RrdCreateString="rrdtool create %s --step %u "%(self.nvdb, self.poll_interval)
+            for item in self.pollData:
+                self.RrdCreateString += item['ds_type'] % (item['ds_name'], self.poll_interval*4) + ' ' 
+            self.RrdCreateString += "RRA:AVERAGE:0,999:1:20000 " 
+            self.RrdCreateString += "RRA:AVERAGE:0,999:10:20000 " 
+            self.RrdCreateString += "RRA:AVERAGE:0,999:100:20000 " 
+            self.RrdCreateString += "RRA:AVERAGE:0,999:1000:20000" 
+
+>>>>>>> develop
         # dict to hold known recent values of db items
         self.dbvalues = {}
 
@@ -486,6 +677,7 @@ if __name__ == "__main__":
     parser.add_argument('-G', '--GROUP', default='nogroup', help='Run as GROUP')
     parser.add_argument('-C', '--CONFIG', default='pellmon.conf', help='Full path to config file')
     parser.add_argument('-D', '--DBUS', default='SESSION', choices=['SESSION', 'SYSTEM'], help='which bus to use, SESSION is default')
+    parser.add_argument('-p', '--PLUGINDIR', default='Pellmonsrv/plugins', help='Full path to plugin directory')
     args = parser.parse_args()
 
     config_file = args.CONFIG
@@ -519,7 +711,6 @@ if __name__ == "__main__":
         os.chown(dbdir, uid, gid)
         if os.path.isfile(dbfile):
             os.chown(dbfile, uid, gid)
-        drop_privileges(args.USER, args.GROUP)
 
     # must be be set before calling daemon.start
     daemon.pidfile = args.PIDFILE
@@ -528,6 +719,13 @@ if __name__ == "__main__":
     global conf
     conf = config(config_file)
     conf.dbus = args.DBUS
+    conf.plugin_dir = args.PLUGINDIR
+
+    if args.USER:
+        conf.USER = args.USER
+    if args.GROUP:
+        conf.GROUP = args.GROUP
+
 
     commands[args.command]()
 
