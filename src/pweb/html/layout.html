@@ -18,7 +18,7 @@
 					<span class="icon-bar"></span>
 					<span class="icon-bar"></span>
 				</button>
-				
+
 				<a href="/" class="navbar-brand"><img src="/media/pellmon.svg" width="18" style="margin:0px 10px 0px 0px;">PellMon</a>
     		</div>
     		<div class="navbar-collapse collapse">
@@ -46,6 +46,12 @@
 	<!-- <div class="container"> -->
 		${self.body()}
 	<!-- </div> -->
+	<br>
+	************<br>
+	This is a demo of the PellMon webinterface. The demo database holds real logged data for 6 months, view past data by clicking the left arrow button below the graph. The demo is running disconnected for obvious reasons, so the database is not updated and the parameter values are fake.
+	You can access the parameter values with user 'testuser' and password '12345'. The parameter view shows the data/parameters made available by the scottecom plugin, which handles communication with a NBE scotte/woody/biocomfort pellet burner, but PellMon also supports generic pellet burners
+	and the functionality can be extended by adding a new plugin. Full source code is available at <a href="https://github.com/motoz/PellMon"> github </a>
+	<br>************
 	<script src="http://code.jquery.com/jquery.js"></script>
 	<script src="/media/bs3/js/bootstrap.min.js"></script>
 	${self.scriptIncludes()}
