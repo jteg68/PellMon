@@ -17,7 +17,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os.path
+import os.path, os
 import cherrypy
 from cherrypy.lib.static import serve_file, serve_fileobj
 from cherrypy.process import plugins, servers
@@ -272,7 +272,7 @@ class PellMonWeb:
                     RrdGraphString1+="LINE1:%s_s%s:\"%s\" "% (line['name'], line['color'], line['name'])
                 else:
                     RrdGraphString1+="LINE1:%s%s:\"%s\" "% (line['name'], line['color'], line['name'])
-        cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE)
+        cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE, env=my_env)
         cherrypy.response.headers['Pragma'] = 'no-cache'
         cherrypy.response.headers['Content-Type'] = "image/png"
         return cmd.communicate()[0]
@@ -662,6 +662,9 @@ app_conf =  {'/media':
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 cherrypy.config.update(global_conf)
+
+my_env = os.environ
+my_env["TZ"] = 'UTC-3'
 
 if __name__=="__main__":
 
