@@ -185,7 +185,7 @@ class PellMonWeb:
             graphtime = int(args['time'])
         except:
             graphtime = int(time.time())
-        graphtime = 1380700483
+            graphtime = 1380700483
 
         # Offset x-axis with ?timeoffset=xx
         try:
