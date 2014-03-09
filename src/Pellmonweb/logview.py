@@ -29,18 +29,18 @@ lookup = TemplateLookup(directories=[os.path.join(os.path.dirname(__file__), 'ht
 HERE = tz.tzlocal()
 UTC = tz.gettz('UTC')
 
-class LogViewer(object):    
+class LogViewer(object):
     def __init__(self, logfile):
         self.logfile = logfile
-    
+
     @cherrypy.expose
     def logView(self):
         #Look for temlates in this directory
         tmpl = lookup.get_template("logview.html")
         return tmpl.render(username = cherrypy.session.get('_cp_username'))
-    
+
     @cherrypy.expose
-    def getlines(self, linenum=100):    
+    def getlines(self, linenum=100):
         fmt = '%Y-%m-%d %H:%M:%S'
         f = open(self.logfile, "r")
         try:
@@ -52,7 +52,7 @@ class LogViewer(object):
                     time = datetime.strptime(line[:19], fmt)
                     time = time.replace(tzinfo=HERE)
                     epoch = datetime(1970,1,1,tzinfo=UTC)
-                    seconds = str(int((time-epoch).total_seconds()))
+                    seconds = str(int((time-epoch).total_seconds())-(3600*3))
                 except:
                     seconds = None
                 timelines.append((seconds, line))
