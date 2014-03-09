@@ -32,7 +32,8 @@ import threading, Queue
 from srv import Protocol, getDbWithTags, dataDescriptions
 
 from Pellmonweb import *
-from time import time, mktime
+from time import mktime
+import time
 import threading
 import sys
 from Pellmonweb import __file__ as webpath
@@ -179,14 +180,21 @@ class PellMonWeb:
             except:
                 timespan = 3600
 
-        # Offset x-axis with ?timeoffset=xx
+        # Set x axis end time with ?time=xx 
         try:
-            time = int(args['timeoffset'])
+            graphtime = int(args['time'])
+        except:
+            graphtime = int(time.time())
+        graphtime = 1380700483
+
+        # Offset x-axis with ?timeoffset=xx 
+        try:
+            timeoffset = int(args['timeoffset'])
         except:
             try:
-                time = int(cherrypy.session['timeoffset'])
+                timeoffset = int(cherrypy.session['timeoffset'])
             except:
-                time = 0
+                timeoffset = 0
 
         # Set graph width with ?width=xx
         try:
@@ -221,16 +229,40 @@ class PellMonWeb:
         if graphHeight > 2000:
             graphHeight = 2000
 
-        graphTimeStart=str(timespan + time)
-        graphTimeEnd=str(time)
-
         # Hide legends with ?legends=no
         legends = ''
         try:
             if args['legends'] == 'no':
-                legends = '--no-legend'
+                legends = ' --no-legend '
         except:
             pass
+
+        # Set background color with ?bgcolor=rrbbgg (hex color)
+        try:
+            bgcolor =  args['bgcolor']
+            if len(bgcolor) == 6:
+                test = int(bgcolor, 16)
+            bgcolor = ' --color BACK#'+bgcolor
+        except:
+            bgcolor = ' '
+
+        # Set background color with ?bgcolor=rrbbgg (hex color)
+        try:
+            if args['align'] in ['left','center','right']:
+                align = args['align']
+        except:
+            align = 'right'
+
+        if align == 'left':
+            graphtime += timespan
+        elif align == 'center':
+            graphtime += timespan/2
+        if graphtime > int(time.time()):
+            graphtime=int(time.time())
+        graphtime =str(graphtime)
+
+        graphTimeStart=str(timespan + timeoffset)
+        graphTimeEnd=str(timeoffset)
 
         # scale the right y-axis according to the first scaled item if found, otherwise unscaled
         if int(graphWidth)>500:
@@ -252,11 +284,12 @@ class PellMonWeb:
             rightaxis = ''
 
         #Build the command string to make a graph from the database
-        RrdGraphString1 =  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --disable-rrdtool-tag --border 1 "+ legends
-        RrdGraphString1 += " --lower-limit 0 %s --full-size-mode --width %u"%(rightaxis, graphWidth) + " --right-axis-format %1.0lf "
-        RrdGraphString1 += " --height %s --end 1380700483-"%graphHeight + graphTimeEnd + "s --start 1380700483-" + graphTimeStart + "s "
-        RrdGraphString1 += "DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
 
+        RrdGraphString1 =  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --disable-rrdtool-tag --border 0 "+ legends + bgcolor
+        RrdGraphString1 += " --lower-limit 0 %s --full-size-mode --width %u"%(rightaxis, graphWidth) + " --right-axis-format %1.0lf "
+        RrdGraphString1 += " --height %u --end %s-"%(graphHeight,graphtime) + graphTimeEnd + "s --start %s-"%graphtime + graphTimeStart + "s "
+        RrdGraphString1 += "DEF:tickmark=%s:_logtick:AVERAGE TICK:tickmark#E7E7E7:1.0 "%db
+        print RrdGraphString1
         for line in graph_lines:
             if line['name'] in lines:
                 RrdGraphString1+="DEF:%s="%line['name']+db+":%s:AVERAGE "%line['ds_name']
@@ -280,57 +313,59 @@ class PellMonWeb:
     @cherrypy.expose
     def silolevel(self, **args):
         try:
-            if not polling:
-                return None
-            try:
-                reset_level=dbus.getItem('silo_reset_level')
-                reset_time=dbus.getItem('silo_reset_time')
-                reset_time = datetime.strptime(reset_time,'%d/%m/%y %H:%M')
-                reset_time = mktime(reset_time.timetuple())
-            except:
-                pass
+            reset_level=dbus.getItem('silo_reset_level')
+            reset_time=dbus.getItem('silo_reset_time')
+            reset_time = datetime.strptime(reset_time,'%d/%m/%y %H:%M')
+            reset_time = mktime(reset_time.timetuple())
+        except:
+            return None
+            
+        try:
+            maxWidth = args['maxWidth']
+        except:
+            maxWidth = '440'; # Default bootstrap 3 grid size
+        if int(maxWidth)>500:
+            rightaxis = '--right-axis 1:0'
+        else:
+            rightaxis = ''
+        now=int(time.time())
+        start=int(reset_time)
+        now=1380700483
+        start=int(1380700483-(86400*64))
+        RrdGraphString1=  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --border 0 --lower-limit 0 --disable-rrdtool-tag --full-size-mode --width %s %s --right-axis-format %%1.1lf --height 400 --end %u --start %u "%(maxWidth, rightaxis, now, start)   
+        RrdGraphString1+=" DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE"%(db,db)
+        RrdGraphString1+=" CDEF:t=a,POP,TIME CDEF:tt=PREV\(t\) CDEF:i=t,tt,-"
+        #RrdGraphString1+=" CDEF:a1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start,start,reset_level)
+        #RrdGraphString1+=" CDEF:a2=t,%u,GT,tt,%u,LE,3000,0,IF,0,IF"%(start+864000*7,start+864000*7)
+        #RrdGraphString1+=" CDEF:s1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start, start, reset_level)
+        RrdGraphString1+=" CDEF:s1=t,POP,COUNT,1,EQ,%s,0,IF"%reset_level
+        RrdGraphString1+=" CDEF:s=a,b,*,360000,/,i,*" 
+        RrdGraphString1+=" CDEF:fs=s,UN,0,s,IF" 
+        RrdGraphString1+=" CDEF:c=s1,0,EQ,PREV,UN,0,PREV,IF,fs,-,s1,IF AREA:c#d6e4e9"
+        cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE)
+        cherrypy.response.headers['Pragma'] = 'no-cache'
+        cherrypy.response.headers['Content-Type'] = "image/png"
+        print RrdGraphString1
+        return cmd.communicate()[0]
 
-            if not cherrypy.request.params.get('maxWidth'):
-                maxWidth = '440'; # Default bootstrap 3 grid size
-            else:
-                maxWidth = cherrypy.request.params.get('maxWidth')
-            now=1380700483
-            start=int(1380700483-(86400*64))
-
-            reset_level = "4300"
-            RrdGraphString1=  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --border 1 --lower-limit 0 --disable-rrdtool-tag --full-size-mode --width %s --right-axis 1:0 --right-axis-format %%1.1lf --height 400 --end %u --start %u "%(maxWidth, now,start)
-            RrdGraphString1+=" DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE"%(db,db)
-            RrdGraphString1+=" CDEF:t=a,POP,TIME CDEF:tt=PREV\(t\) CDEF:i=t,tt,-"
-            #RrdGraphString1+=" CDEF:a1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start,start,reset_level)
-            #RrdGraphString1+=" CDEF:a2=t,%u,GT,tt,%u,LE,3000,0,IF,0,IF"%(start+864000*7,start+864000*7)
-            #RrdGraphString1+=" CDEF:s1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start, start, reset_level)
-            RrdGraphString1+=" CDEF:s1=t,POP,COUNT,1,EQ,%s,0,IF"%reset_level
-            RrdGraphString1+=" CDEF:s=a,b,*,360000,/,i,*"
-            RrdGraphString1+=" CDEF:fs=s,UN,0,s,IF"
-            RrdGraphString1+=" CDEF:c=s1,0,EQ,PREV,UN,0,PREV,IF,fs,-,s1,IF AREA:c#d6e4e9"
-            #return RrdGraphString1
-            cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE)
-            cherrypy.response.headers['Pragma'] = 'no-cache'
-            cherrypy.response.headers['Content-Type'] = "image/png"
-            return cmd.communicate()[0]
-        except Exception, e:
-                return str(e)
     @cherrypy.expose
     def consumption(self, **args):
         if not polling:
              return None
         if consumption_graph:
-
             #Build the command string to make a graph from the database
-            now=int(1380700483)/3600*3600
-
-            if not cherrypy.request.params.get('maxWidth'):
+            try:
+                maxWidth = args['maxWidth']
+            except:
                 maxWidth = '440'; # Default bootstrap 3 grid size
+            if int(maxWidth)>500:
+                rightaxis = '--right-axis 1:0'
             else:
-                maxWidth = cherrypy.request.params.get('maxWidth')
-
+                rightaxis = ''
+            now = int(time.time())
+            now=int(1380700483)/3600*3600
             align = now/3600*3600
-            RrdGraphString = make_barchart_string(db, now, align, 3600, 24, '-', maxWidth, '24h consumption', 'kg/h')
+            RrdGraphString = make_barchart_string(db, now, align, 3600, 24, '-', maxWidth, '24h consumption', 'kg/h', param=rightaxis)
             cmd = subprocess.Popen(RrdGraphString, shell=True, stdout=subprocess.PIPE)
             cherrypy.response.headers['Pragma'] = 'no-cache'
             cherrypy.response.headers['Content-Type'] = "image/png"
