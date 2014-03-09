@@ -180,14 +180,14 @@ class PellMonWeb:
             except:
                 timespan = 3600
 
-        # Set x axis end time with ?time=xx 
+        # Set x axis end time with ?time=xx
         try:
             graphtime = int(args['time'])
         except:
             graphtime = int(time.time())
         graphtime = 1380700483
 
-        # Offset x-axis with ?timeoffset=xx 
+        # Offset x-axis with ?timeoffset=xx
         try:
             timeoffset = int(args['timeoffset'])
         except:
@@ -318,8 +318,9 @@ class PellMonWeb:
             reset_time = datetime.strptime(reset_time,'%d/%m/%y %H:%M')
             reset_time = mktime(reset_time.timetuple())
         except:
-            return None
-            
+            #return None
+            pass
+
         try:
             maxWidth = args['maxWidth']
         except:
@@ -329,18 +330,19 @@ class PellMonWeb:
         else:
             rightaxis = ''
         now=int(time.time())
-        start=int(reset_time)
+        #start=int(reset_time)
         now=1380700483
         start=int(1380700483-(86400*64))
-        RrdGraphString1=  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --border 0 --lower-limit 0 --disable-rrdtool-tag --full-size-mode --width %s %s --right-axis-format %%1.1lf --height 400 --end %u --start %u "%(maxWidth, rightaxis, now, start)   
+        reset_level='4500'
+        RrdGraphString1=  "LD_LIBRARY_PATH=/home/motoz/rrd /home/motoz/rrd/rrdtool graph - --border 0 --lower-limit 0 --disable-rrdtool-tag --full-size-mode --width %s %s --right-axis-format %%1.1lf --height 400 --end %u --start %u "%(maxWidth, rightaxis, now, start)
         RrdGraphString1+=" DEF:a=%s:feeder_time:AVERAGE DEF:b=%s:feeder_capacity:AVERAGE"%(db,db)
         RrdGraphString1+=" CDEF:t=a,POP,TIME CDEF:tt=PREV\(t\) CDEF:i=t,tt,-"
         #RrdGraphString1+=" CDEF:a1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start,start,reset_level)
         #RrdGraphString1+=" CDEF:a2=t,%u,GT,tt,%u,LE,3000,0,IF,0,IF"%(start+864000*7,start+864000*7)
         #RrdGraphString1+=" CDEF:s1=t,%u,GT,tt,%u,LE,%s,0,IF,0,IF"%(start, start, reset_level)
         RrdGraphString1+=" CDEF:s1=t,POP,COUNT,1,EQ,%s,0,IF"%reset_level
-        RrdGraphString1+=" CDEF:s=a,b,*,360000,/,i,*" 
-        RrdGraphString1+=" CDEF:fs=s,UN,0,s,IF" 
+        RrdGraphString1+=" CDEF:s=a,b,*,360000,/,i,*"
+        RrdGraphString1+=" CDEF:fs=s,UN,0,s,IF"
         RrdGraphString1+=" CDEF:c=s1,0,EQ,PREV,UN,0,PREV,IF,fs,-,s1,IF AREA:c#d6e4e9"
         cmd = subprocess.Popen(RrdGraphString1, shell=True, stdout=subprocess.PIPE)
         cherrypy.response.headers['Pragma'] = 'no-cache'
