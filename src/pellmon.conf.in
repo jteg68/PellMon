@@ -26,6 +26,9 @@ p06 = SiloLevel
 # PelletCalc calculates feeder_time and power from feeder auger revolution count  
 #p07 = PelletCalc
 
+# Consumption calculates bar chart data to be used by the web interface
+p08 = Consumption
+
 # Testplugin is a plugin template that does nothing useful
 #p99 = TestPlugin
 
