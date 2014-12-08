@@ -35,22 +35,22 @@ class Consumption(object):
         return tmpl.render(username=cherrypy.session.get('_cp_username'), webroot=cherrypy.request.script_name)
 
     @cherrypy.expose
-    def flotconsumption24h(self):
+    def flotconsumption24h(self, **args):
         cherrypy.response.headers['Pragma'] = 'no-cache'
         return self.dbus.getItem('consumptionData24h')
 
     @cherrypy.expose
-    def flotconsumption7d(self):
+    def flotconsumption7d(self, **args):
         cherrypy.response.headers['Pragma'] = 'no-cache'
         return self.dbus.getItem('consumptionData7d')
 
     @cherrypy.expose
-    def flotconsumption8w(self):
+    def flotconsumption8w(self, **args):
         cherrypy.response.headers['Pragma'] = 'no-cache'
         return self.dbus.getItem('consumptionData8w')
 
     @cherrypy.expose
-    def flotconsumption1y(self):    
+    def flotconsumption1y(self, **args):
         cherrypy.response.headers['Pragma'] = 'no-cache'
         return self.dbus.getItem('consumptionData1y')
 
